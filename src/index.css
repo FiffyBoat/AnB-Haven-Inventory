@@ -1,0 +1,216 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@media print {
+  @page { margin: 10mm; }
+
+  body { background: #ffffff !important; }
+  body * { visibility: hidden !important; }
+
+  body.printing-receipt .receipt-print,
+  body.printing-receipt .receipt-print * {
+    visibility: visible !important;
+  }
+  body.printing-receipt .receipt-print {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 80mm !important;
+    max-width: 80mm !important;
+    overflow: visible !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    color: #000000 !important;
+  }
+
+  body.printing-closing .daily-closing,
+  body.printing-closing .daily-closing * {
+    visibility: visible !important;
+  }
+  body.printing-closing .daily-closing {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    color: #000000 !important;
+  }
+  body.printing-closing .daily-closing .print-action {
+    visibility: hidden !important;
+  }
+  body.printing-closing .daily-closing section,
+  body.printing-closing .daily-closing tr {
+    break-inside: avoid;
+  }
+}
+
+@layer base {
+  :root {
+    --font-inter: 'Inter', system-ui, sans-serif;
+    --background: 0 0% 93.7%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 221 83% 25%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 25 95% 53%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 221 83% 25%;
+    --chart-1: 221 83% 25%;
+    --chart-2: 25 95% 53%;
+    --chart-3: 142 71% 45%;
+    --chart-4: 48 96% 53%;
+    --chart-5: 0 84% 60%;
+    --radius: 0.75rem;
+    --sidebar-background: 221 83% 18%;
+    --sidebar-foreground: 210 40% 92%;
+    --sidebar-primary: 25 95% 53%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 221 60% 25%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 221 60% 28%;
+    --sidebar-ring: 25 95% 53%;
+    /* figma:untitled (psMOhqaM) — start */
+    --figma-primary: 196 12% 35%;
+    --figma-secondary: 0 0% 100%;
+    --figma-accent: 0 0% 87.5%;
+    --figma-muted: 0 0% 93.7%;
+    --figma-surface: 196 12% 35% / 0.1;
+    --figma-border: 195 12% 87% / 0.2;
+    --figma-highlight: 80 67% 60%;
+    --figma-subtle: 23 65% 57%;
+    --figma-color-9: 0 0% 93.7%;
+    --figma-color-10: 196 12% 35% / 0.2;
+    --figma-color-11: 0 0% 85%;
+    --figma-color-12: 106 8% 40%;
+    --figma-color-13: 14 35% 50%;
+    --figma-color-14: 16 65% 57%;
+    --figma-color-15: 36 64% 59%;
+    --figma-color-16: 48 64% 60%;
+    --figma-text-1: 197 12% 55%;
+    --figma-text-2: 30 6% 13%;
+    /* figma:untitled (psMOhqaM) — end */
+    /* figma:untitled (psMOhqaM) — start */
+    --figma-secondary-2: 0 0% 0%;
+    --figma-color-10-2: 106 31% 48%;
+    /* figma:untitled (psMOhqaM) — end */
+    /* figma:untitled (psMOhqaM) — start */
+    --figma-primary-2: 197 12% 24%;
+    --figma-secondary-3: 196 12% 43%;
+    --figma-muted-2: 106 48% 48%;
+    --figma-border-2: 10 89% 51%;
+    --figma-color-11-2: 0 0% 96%;
+    --figma-color-14-2: 197 12% 24% / 0.2;
+    /* figma:untitled (psMOhqaM) — end */
+    /* figma:supply-chain (psMOhqaM) — start */
+    --figma-primary-3: 0 0% 20%;
+    --figma-secondary-4: 0 0% 94%;
+    --figma-accent-2: 34 100% 50%;
+    --figma-muted-3: 0 0% 7%;
+    --figma-border-3: 0 0% 87%;
+    --figma-color-12-2: 0 0% 7% / 0.2;
+    /* figma:supply-chain (psMOhqaM) — end */
+  }
+
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 6%;
+    --secondary: 222 30% 14%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 222 30% 14%;
+    --muted-foreground: 220 9% 56%;
+    --accent: 25 95% 53%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 222 30% 18%;
+    --input: 222 30% 18%;
+    --ring: 217 91% 60%;
+    --chart-1: 217 91% 60%;
+    --chart-2: 25 95% 53%;
+    --chart-3: 142 71% 45%;
+    --chart-4: 48 96% 53%;
+    --chart-5: 0 84% 60%;
+    --sidebar-background: 222 47% 6%;
+    --sidebar-foreground: 210 40% 92%;
+    --sidebar-primary: 25 95% 53%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 30% 14%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 222 30% 18%;
+    --sidebar-ring: 25 95% 53%;
+  }
+}
+
+
+
+/* AI Suggestions action buttons — circular on mobile/tablet, pill on desktop */
+.action-btn-approve,
+.action-btn-modify,
+.action-btn-reject {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 14px;
+}
+@media (min-width: 1024px) {
+  .action-btn-approve,
+  .action-btn-modify,
+  .action-btn-reject {
+    width: 72px;
+    height: 32px;
+    padding: 0 16px;
+    border-radius: 22px;
+    font-size: 14px;
+  }
+}
+
+/* NewProductDialog: Description/Image responsive col-span */
+.field-desc { grid-column: span 2; }
+.field-img  { grid-column: span 2; }
+@media (min-width: 640px) {
+  .field-desc { grid-column: span 3; }
+  .field-img  { grid-column: span 1; }
+}
+
+
+/* Remove number input spinners globally */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
