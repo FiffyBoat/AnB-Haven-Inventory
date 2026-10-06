@@ -6,7 +6,7 @@ import PaymentModal from "@/components/pos/PaymentModal";
 import UnitPicker from "@/components/pos/UnitPicker";
 import ReceiptModal from "@/components/ReceiptModal";
 import ProductGrid from "@/components/pos/ProductGrid";
-import { Search, Trash2, Plus, Minus, UserPlus, X } from "lucide-react";
+import { Search, Trash2, Plus, Minus, UserPlus, X, ShoppingCart, ArrowLeftRight } from "lucide-react";
 
 export default function POS() {
   const { toast } = useToast();
@@ -19,6 +19,7 @@ export default function POS() {
   const [loading, setLoading] = useState(true);
   const [pickerUnits, setPickerUnits] = useState(null);
   const [pickerProduct, setPickerProduct] = useState(null);
+  const [changingLineKey, setChangingLineKey] = useState(null);
   const [payOpen, setPayOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [receiptSale, setReceiptSale] = useState(null);
@@ -205,6 +206,40 @@ export default function POS() {
 
   const removeLine = (key) => setCart((prev) => prev.filter((l) => l.key !== key));
 
+  const clearCart = () => {
+    if (cart.length === 0) return;
+    setCart([]);
+    setSaleDiscount("");
+    toast({ title: "Cart cleared" });
+  };
+
+  const handleReplaceLine = (line) => {
+    removeLine(line.key);
+    setQuery("");
+    searchRef.current?.focus();
+    toast({ title: "Item Removed", description: `Search or scan a replacement for ${line.product_name}` });
+  };
+
+  const handleChangeUnit = async (line) => {
+    const product = products.find((p) => p.id === line.product_id);
+    if (!product) return;
+    try {
+      const inStockUnits = await localStore.entities.ProductUnit.filter({ product_id: product.id, status: "IN_STOCK" });
+      const availableUnits = inStockUnits.filter(
+        (u) => u.id === line.unit_id || !cart.some((l) => l.unit_id === u.id)
+      );
+      if (availableUnits.length === 0) {
+        toast({ title: "No other units in stock", description: product.name, variant: "destructive" });
+        return;
+      }
+      setPickerProduct(product);
+      setPickerUnits(availableUnits);
+      setChangingLineKey(line.key);
+    } catch {
+      toast({ title: "Could not fetch units", variant: "destructive" });
+    }
+  };
+
   const completeSale = async (payments) => {
     setSubmitting(true);
     try {
@@ -293,72 +328,171 @@ export default function POS() {
         </div>
 
         <ProductGrid products={displayedProducts} onAdd={handleAdd} totalProducts={activeProducts.length} isSearching={Boolean(query)} />
-
-        {/* Cart lines */}
-        {cart.length > 0 && (
-          <div className="bg-white rounded-3xl overflow-hidden">
-            {cart.map((l) => (
-              <div key={l.key} className="flex items-center gap-3 px-4 py-3 border-b border-neutral-100 last:border-0">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-[#111111] truncate">{l.product_name}</p>
-                  {l.identifier && <p className="text-xs text-neutral-500">{l.identifier}</p>}
-                  <p className="text-xs text-neutral-500">{formatGhs(l.unit_price)} each</p>
-                </div>
-                {!l.unit_id && (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => changeQty(l.key, -1)} className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center cursor-pointer border-none"><Minus size={13} /></button>
-                    <span className="text-sm font-medium w-6 text-center">{l.quantity}</span>
-                    <button onClick={() => changeQty(l.key, 1)} className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center cursor-pointer border-none"><Plus size={13} /></button>
-                  </div>
-                )}
-                <p className="text-sm font-medium w-28 text-right shrink-0">{formatGhs(l.quantity * l.unit_price)}</p>
-                <button onClick={() => removeLine(l.key)} className="text-neutral-300 hover:text-[#D9624A] cursor-pointer border-none bg-transparent shrink-0"><Trash2 size={15} /></button>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
-      {/* Right: checkout panel */}
-      <div className="flex flex-col gap-4 lg:sticky lg:top-16 self-start">
-        <div className="bg-[#111111] rounded-3xl p-5 text-white">
-          <p className="text-xs opacity-70">Current Sale</p>
-          <p className="text-4xl font-light font-heading mt-3">{formatGhs(total)}</p>
+      {/* Right: Order ticket & checkout panel */}
+      <div className="flex flex-col gap-4 lg:sticky lg:top-4 self-start">
+        {/* Order Items Cart */}
+        <div className="bg-white rounded-3xl p-5 border border-neutral-100 shadow-sm flex flex-col">
+          <div className="flex items-center justify-between pb-3 border-b border-neutral-100">
+            <div className="flex items-center gap-2">
+              <ShoppingCart size={16} className="text-[#FF9000]" />
+              <h2 className="text-sm font-semibold text-[#111111]">Current Order</h2>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600 font-medium">
+                {cart.reduce((s, l) => s + l.quantity, 0)} items
+              </span>
+            </div>
+            {cart.length > 0 && (
+              <button
+                type="button"
+                onClick={clearCart}
+                className="text-xs text-neutral-400 hover:text-[#D9624A] flex items-center gap-1 cursor-pointer border-none bg-transparent p-0 transition-colors"
+                title="Clear entire cart"
+              >
+                <Trash2 size={13} /> Clear
+              </button>
+            )}
+          </div>
 
-          <div className="mt-5 space-y-2 text-sm">
-            <div className="flex justify-between opacity-80"><span>Subtotal</span><span>{formatGhs(subtotal)}</span></div>
-            <div className="flex items-center justify-between opacity-80">
+          {/* Cart items list */}
+          {cart.length === 0 ? (
+            <div className="py-10 text-center text-neutral-400 flex flex-col items-center justify-center">
+              <ShoppingCart size={28} className="text-neutral-200 mb-2 stroke-[1.5]" />
+              <p className="text-sm font-medium text-neutral-500">Cart is empty</p>
+              <p className="text-xs text-neutral-400 mt-1 max-w-[200px]">
+                Scan barcode/IMEI or click an item from the catalog to start.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-neutral-100 max-h-[340px] overflow-y-auto my-2 pr-1">
+              {cart.map((l) => (
+                <div key={l.key} className="py-3 flex flex-col gap-1.5 group">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-[#111111] leading-snug truncate" title={l.product_name}>
+                        {l.product_name}
+                      </p>
+                      <p className="text-xs text-neutral-500 mt-0.5">
+                        {formatGhs(l.unit_price)} each
+                      </p>
+                    </div>
+                    <span className="text-sm font-semibold text-[#111111] shrink-0">
+                      {formatGhs(l.quantity * l.unit_price)}
+                    </span>
+                  </div>
+
+                  {/* IMEI tag & controls */}
+                  <div className="flex items-center justify-between gap-2 mt-1">
+                    {l.unit_id ? (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="inline-flex items-center text-[11px] font-mono bg-orange-50 text-orange-800 border border-orange-200/60 px-2 py-0.5 rounded-md">
+                          IMEI: {l.identifier}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleChangeUnit(l)}
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-neutral-600 hover:text-[#111111] bg-neutral-100 hover:bg-neutral-200 px-2 py-0.5 rounded-md cursor-pointer border-none transition-colors"
+                          title="Select a different IMEI/serial unit"
+                        >
+                          <ArrowLeftRight size={11} /> Change IMEI
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => changeQty(l.key, -1)}
+                          className="w-7 h-7 rounded-lg bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center cursor-pointer border-none transition-colors"
+                          title="Decrease quantity"
+                        >
+                          <Minus size={12} />
+                        </button>
+                        <span className="text-xs font-semibold w-6 text-center text-[#111111]">{l.quantity}</span>
+                        <button
+                          onClick={() => changeQty(l.key, 1)}
+                          className="w-7 h-7 rounded-lg bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center cursor-pointer border-none transition-colors"
+                          title="Increase quantity"
+                        >
+                          <Plus size={12} />
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleReplaceLine(l)}
+                        className="text-xs text-neutral-400 hover:text-neutral-700 cursor-pointer border-none bg-transparent p-0 transition-colors"
+                        title="Replace this item"
+                      >
+                        Replace
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeLine(l.key)}
+                        className="p-1 rounded-md text-neutral-300 hover:text-[#D9624A] hover:bg-red-50 cursor-pointer border-none bg-transparent transition-colors"
+                        title="Remove item from order"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Pricing & totals inside order card */}
+          <div className="pt-3 border-t border-neutral-100 space-y-2 text-xs">
+            <div className="flex justify-between text-neutral-500">
+              <span>Subtotal</span>
+              <span className="font-medium text-[#111111]">{formatGhs(subtotal)}</span>
+            </div>
+            <div className="flex items-center justify-between text-neutral-500">
               <span>Discount</span>
               <input
-                type="number" min="0" step="0.01" value={saleDiscount}
+                type="number"
+                min="0"
+                step="0.01"
+                value={saleDiscount}
                 onChange={(e) => setSaleDiscount(e.target.value)}
                 placeholder="0.00"
-                className="w-24 h-8 rounded-lg bg-white/10 px-2 text-right focus:outline-none focus:ring-1 focus:ring-[#FF9000] border-none" />
+                className="w-24 h-7 rounded-md border border-neutral-200 px-2 text-right text-xs focus:outline-none focus:border-[#FF9000]"
+              />
+            </div>
+            <div className="flex justify-between items-center pt-2 border-t border-neutral-100">
+              <span className="text-sm font-semibold text-[#111111]">Total Due</span>
+              <span className="text-xl font-bold text-[#111111]">{formatGhs(total)}</span>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl p-5">
-          <p className="text-xs text-neutral-500">Customer (for credit &amp; history)</p>
+        {/* Customer & Checkout */}
+        <div className="bg-white rounded-3xl p-5 border border-neutral-100 shadow-sm">
+          <label className="text-xs text-neutral-500 block mb-1">Customer (for credit &amp; history)</label>
           <select
             value={customer?.id || ""}
             onChange={(e) => setCustomer(customers.find((c) => c.id === e.target.value) || null)}
-            className="w-full mt-2 h-11 rounded-xl border border-neutral-200 px-3 text-sm bg-white focus:outline-none focus:border-[#FF9000]">
+            className="w-full h-11 rounded-xl border border-neutral-200 px-3 text-sm bg-white focus:outline-none focus:border-[#FF9000]"
+          >
             <option value="">Walk-in Customer</option>
             {customers.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}{c.current_balance ? ` · owes ${formatGhs(c.current_balance)}` : ""}</option>
+              <option key={c.id} value={c.id}>
+                {c.name}{c.current_balance ? ` · owes ${formatGhs(c.current_balance)}` : ""}
+              </option>
             ))}
           </select>
           <button
             onClick={() => setNewCust({ ...newCust, open: true })}
-            className="mt-2 flex items-center gap-1.5 text-xs text-neutral-500 hover:text-[#111111] cursor-pointer border-none bg-transparent px-0">
+            className="mt-2 flex items-center gap-1.5 text-xs text-neutral-500 hover:text-[#111111] cursor-pointer border-none bg-transparent px-0"
+          >
             <UserPlus size={13} /> New customer
           </button>
 
           <button
             disabled={cart.length === 0}
             onClick={() => setPayOpen(true)}
-            className="w-full mt-4 h-13 py-3.5 rounded-full bg-[#FF9000] text-[#111111] font-medium text-sm cursor-pointer border-none disabled:opacity-30 disabled:cursor-not-allowed">
+            className="w-full mt-4 h-13 py-3.5 rounded-full bg-[#FF9000] text-[#111111] font-semibold text-sm cursor-pointer border-none disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#ff9d2e] transition-colors shadow-sm"
+          >
             Checkout · {formatGhs(total)}
           </button>
         </div>
@@ -368,8 +502,30 @@ export default function POS() {
       <UnitPicker
         open={!!pickerUnits}
         units={pickerUnits || []}
-        onClose={() => { setPickerUnits(null); setPickerProduct(null); }}
-        onPick={(unit) => { addLine(pickerProduct, unit); setPickerUnits(null); setPickerProduct(null); searchRef.current?.focus(); }}
+        onClose={() => { setPickerUnits(null); setPickerProduct(null); setChangingLineKey(null); }}
+        onPick={(unit) => {
+          if (changingLineKey) {
+            setCart((prev) => prev.map((l) => {
+              if (l.key === changingLineKey) {
+                return {
+                  ...l,
+                  key: unit.id,
+                  unit_id: unit.id,
+                  identifier: unit.imei_1 || unit.serial_number,
+                  unit_ids: [unit.id],
+                };
+              }
+              return l;
+            }));
+            toast({ title: "IMEI Unit Updated", description: `${pickerProduct.name}: ${unit.imei_1 || unit.serial_number}` });
+            setChangingLineKey(null);
+          } else {
+            addLine(pickerProduct, unit);
+          }
+          setPickerUnits(null);
+          setPickerProduct(null);
+          searchRef.current?.focus();
+        }}
       />
       <PaymentModal
         open={payOpen}
