@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { localStore } from "@/api/localStore";
-import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
 import { formatGhs, clientTxId } from "@/lib/format";
 import PaymentModal from "@/components/pos/PaymentModal";
@@ -10,7 +9,6 @@ import ProductGrid from "@/components/pos/ProductGrid";
 import { Search, Trash2, Plus, Minus, UserPlus, X } from "lucide-react";
 
 export default function POS() {
-  const { user } = useAuth();
   const { toast } = useToast();
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -93,14 +91,107 @@ export default function POS() {
     }
   };
 
-  // Barcode scanners "type" the code and press Enter.
+  const scanBufferRef = useRef("");
+  const lastKeyTimeRef = useRef(0);
+
+  const processScannedCode = async (rawCode) => {
+    const code = rawCode.trim();
+    if (!code) return;
+
+    // 1. Check if the scanned code matches an in-stock IMEI or Serial unit
+    try {
+      const allUnits = await localStore.entities.ProductUnit.list();
+      const matchingUnit = allUnits.find(
+        (u) =>
+          u.status === "IN_STOCK" &&
+          [u.imei_1, u.imei_2, u.serial_number].some(
+            (id) => id && id.toLowerCase() === code.toLowerCase()
+          )
+      );
+
+      if (matchingUnit) {
+        const prod = products.find((p) => p.id === matchingUnit.product_id);
+        if (prod) {
+          addLine(prod, matchingUnit);
+          toast({
+            title: "Unit Scanned",
+            description: `${prod.name} (${matchingUnit.imei_1 || matchingUnit.serial_number}) added to cart`,
+          });
+          return;
+        }
+      }
+    } catch {
+      // Continue to product lookup
+    }
+
+    // 2. Check if code matches barcode or SKU of an active product
+    const exactProduct = activeProducts.find(
+      (p) =>
+        (p.barcode && p.barcode.toLowerCase() === code.toLowerCase()) ||
+        (p.sku && p.sku.toLowerCase() === code.toLowerCase())
+    );
+
+    if (exactProduct) {
+      await handleAdd(exactProduct);
+      toast({
+        title: "Product Scanned",
+        description: `${exactProduct.name} added`,
+      });
+      return;
+    }
+
+    // 3. Fallback: match by title or top filtered result
+    const target = results[0] || activeProducts.find((p) => p.name.toLowerCase().includes(code.toLowerCase()));
+    if (target) {
+      await handleAdd(target);
+      toast({ title: "Product Added", description: target.name });
+    } else {
+      toast({ title: "Code not recognized", description: code, variant: "destructive" });
+    }
+  };
+
+  useEffect(() => {
+    const onKeyDown = async (e) => {
+      const now = Date.now();
+      const timeDiff = now - lastKeyTimeRef.current;
+      lastKeyTimeRef.current = now;
+
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+      if (e.key === "Enter") {
+        const code = scanBufferRef.current.trim();
+        scanBufferRef.current = "";
+        if (code.length >= 3) {
+          e.preventDefault();
+          await processScannedCode(code);
+        }
+        return;
+      }
+
+      if (e.key.length === 1) {
+        const activeEl = document.activeElement;
+        const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes(activeEl?.tagName);
+        // If typing slowly in a text input other than search, don't capture as scanner
+        if (isInput && activeEl !== searchRef.current && timeDiff > 80 && scanBufferRef.current.length === 0) {
+          return;
+        }
+
+        if (timeDiff > 120 && scanBufferRef.current.length > 0) {
+          scanBufferRef.current = e.key;
+        } else {
+          scanBufferRef.current += e.key;
+        }
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeProducts, products, results]);
+
   const onSearchKey = async (e) => {
     if (e.key !== "Enter" || !query.trim()) return;
-    const q = query.trim().toLowerCase();
-    const exact = activeProducts.find((p) => p.barcode?.toLowerCase() === q || p.sku?.toLowerCase() === q);
-    const target = exact || results[0];
-    if (target) await handleAdd(target);
-    else toast({ title: "No product found", description: query, variant: "destructive" });
+    await processScannedCode(query);
+    setQuery("");
   };
 
   const changeQty = (key, delta) => {

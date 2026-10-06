@@ -1,7 +1,7 @@
-import { Outlet, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { Link } from "react-router-dom";
 import {
-  LayoutDashboard, ShoppingCart, Package, Truck, Users, UserRound, ReceiptText, UserCog, Database, ClipboardCheck, ListChecks, ShoppingBag, History,
+  LayoutDashboard, ShoppingCart, Package, Truck, UserRound, ReceiptText, UserCog, Database, ClipboardCheck, ListChecks, ShoppingBag, History,
 } from "lucide-react";
 import NavItem from "@/components/NavItem";
 import TabletBottomNav from "@/components/TabletBottomNav";

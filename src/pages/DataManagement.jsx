@@ -49,12 +49,18 @@ export default function DataManagement() {
       <div><h1 className="text-2xl font-heading font-light text-[#111111]">Data & Backup</h1><p className="text-sm text-neutral-500 mt-1">Keep an offline copy of the records stored in this browser.</p></div>
       <section className="bg-white rounded-lg p-6 border border-neutral-100">
         <div className="flex items-start gap-3"><ShieldCheck size={20} className="text-[#5c8f45] mt-0.5" /><div><h2 className="text-base font-medium text-[#111111]">Create a backup</h2><p className="text-sm text-neutral-500 mt-1">Downloads all products, stock movements, sales, customers, suppliers, and employee accounts into one JSON file.</p></div></div>
-        <button onClick={downloadBackup} className="mt-5 h-11 px-4 rounded-md bg-[#111111] text-white text-sm font-medium flex items-center gap-2 border-0"><Download size={16} /> Download backup</button>
+        <button onClick={downloadBackup} className="mt-5 h-11 px-4 rounded-md bg-[#111111] text-white text-sm font-medium flex items-center gap-2 border-0 cursor-pointer"><Download size={16} /> Download backup</button>
       </section>
       <section className="bg-white rounded-lg p-6 border border-neutral-100">
         <div className="flex items-start gap-3"><HardDriveDownload size={20} className="text-[#b56800] mt-0.5" /><div><h2 className="text-base font-medium text-[#111111]">Restore a backup</h2><p className="text-sm text-neutral-500 mt-1">Use only a backup created by this app. Restoring replaces all current local records and signs you out.</p></div></div>
         <input ref={inputRef} type="file" accept="application/json,.json" className="hidden" onChange={restoreBackup} />
-        <button disabled={restoring} onClick={() => inputRef.current?.click()} className="mt-5 h-11 px-4 rounded-md bg-[#fff3e6] text-[#111111] text-sm font-medium flex items-center gap-2 border border-[#ffd49b] disabled:opacity-50"><FileUp size={16} /> {restoring ? "Restoring..." : "Choose backup to restore"}</button>
+        <button disabled={restoring} onClick={() => inputRef.current?.click()} className="mt-5 h-11 px-4 rounded-md bg-[#fff3e6] text-[#111111] text-sm font-medium flex items-center gap-2 border border-[#ffd49b] disabled:opacity-50 cursor-pointer"><FileUp size={16} /> {restoring ? "Restoring..." : "Choose backup to restore"}</button>
+      </section>
+      <section className="bg-[#fcfcfb] rounded-lg p-5 border border-neutral-200/80">
+        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Dual-Storage Protection Active</p>
+        <p className="text-xs text-neutral-600 mt-1">
+          Your inventory and sales data are automatically mirrored in both <strong>LocalStorage</strong> and <strong>IndexedDB</strong>. If browser cache or session data is cleared, records will automatically restore from IndexedDB.
+        </p>
       </section>
     </div>
   );

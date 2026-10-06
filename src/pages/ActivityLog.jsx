@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { History } from "lucide-react";
 import { localStore } from "@/api/localStore";
 import { useAuth } from "@/lib/AuthContext";

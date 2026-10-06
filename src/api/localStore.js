@@ -1,3 +1,5 @@
+import { saveToIndexedDb, loadFromIndexedDb } from "./indexedDbStorage";
+
 const STORAGE_KEY = "anb-inventory-local-data-v1";
 const SESSION_KEY = "anb-inventory-local-session-v1";
 const BACKUP_FORMAT = "anb-inventory-backup";
@@ -82,7 +84,28 @@ function load() {
 }
 
 function save(data) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (err) {
+    console.warn("localStorage quota exceeded or write failed; persisting to IndexedDB", err);
+  }
+  saveToIndexedDb(STORAGE_KEY, data);
+}
+
+// Background sync: if localStorage was cleared, automatically recover from IndexedDB
+if (typeof window !== "undefined") {
+  loadFromIndexedDb(STORAGE_KEY).then((idbData) => {
+    if (idbData && typeof idbData === "object") {
+      const local = localStorage.getItem(STORAGE_KEY);
+      if (!local) {
+        console.info("Recovered inventory records from IndexedDB storage");
+        save(idbData);
+      }
+    } else {
+      const current = load();
+      if (current) saveToIndexedDb(STORAGE_KEY, current);
+    }
+  }).catch(() => {});
 }
 
 function clone(value) {

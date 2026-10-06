@@ -53,15 +53,40 @@ export default function PaymentModal({ open, onClose, total, customer, onConfirm
 
         <div className="mt-4 space-y-3">
           <div>
-            <label className="text-xs text-neutral-500">Cash amount (GHS)</label>
+            <div className="flex justify-between items-center">
+              <label className="text-xs text-neutral-500">Cash amount (GHS)</label>
+              {cashNum > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setCash("")}
+                  className="text-xs text-neutral-400 hover:text-neutral-700 bg-transparent border-0 cursor-pointer p-0"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
             <input type="number" min="0" step="0.01" value={cash}
               onChange={(e) => setCash(e.target.value)}
+              placeholder="0.00"
               className="w-full mt-1 h-11 rounded-xl border border-neutral-200 px-3 text-sm focus:outline-none focus:border-[#FF9000]" />
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {[10, 20, 50, 100, 200].map((val) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setCash((prev) => String((Number(prev) || 0) + val))}
+                  className="px-2.5 py-1 text-xs font-medium rounded-lg border border-neutral-200 bg-neutral-50 hover:bg-neutral-100 hover:border-neutral-300 text-neutral-700 transition-colors cursor-pointer"
+                >
+                  +GH₵{val}
+                </button>
+              ))}
+            </div>
           </div>
           <div>
             <label className="text-xs text-neutral-500">Mobile money amount (GHS)</label>
             <input type="number" min="0" step="0.01" value={momo}
               onChange={(e) => setMomo(e.target.value)}
+              placeholder="0.00"
               className="w-full mt-1 h-11 rounded-xl border border-neutral-200 px-3 text-sm focus:outline-none focus:border-[#FF9000]" />
           </div>
           {momoNum > 0 && (

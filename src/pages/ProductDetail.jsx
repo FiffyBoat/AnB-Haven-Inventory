@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { localStore } from "@/api/localStore";
 import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
-import { formatGhs, formatDateTime } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import { ArrowLeft, Package } from "lucide-react";
 import ImageUploader from "@/components/ImageUploader";
 

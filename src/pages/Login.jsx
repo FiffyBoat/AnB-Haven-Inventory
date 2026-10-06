@@ -73,9 +73,20 @@ export default function Login() {
           </button>
         </form>
 
-        <button onClick={() => { setResetMode((value) => !value); setMessage(""); }} className="mt-5 inline-flex items-center gap-2 text-sm text-neutral-600 hover:text-[#111111] bg-transparent border-0 p-0">
-          <KeyRound size={15} /> {resetMode ? "Back to sign in" : "Forgot password?"}
-        </button>
+        <div className="mt-6 pt-5 border-t border-neutral-100 flex items-center justify-between">
+          <button onClick={() => { setResetMode((value) => !value); setMessage(""); }} className="inline-flex items-center gap-2 text-sm text-neutral-600 hover:text-[#111111] bg-transparent border-0 p-0 cursor-pointer">
+            <KeyRound size={15} /> {resetMode ? "Back to sign in" : "Forgot password?"}
+          </button>
+          {!resetMode && (
+            <button
+              type="button"
+              onClick={() => { setUsername("owner"); setPassword("change-me"); }}
+              className="text-xs text-[#b56800] hover:text-[#8a4f00] bg-transparent border-0 p-0 cursor-pointer font-medium"
+            >
+              Fill default owner login
+            </button>
+          )}
+        </div>
       </section>
     </main>
   );
