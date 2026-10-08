@@ -13,20 +13,27 @@ export default function ActivityLog() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      localStore.entities.Sale.list("-created_date", 200),
-      localStore.entities.Purchase.list("-created_date", 200),
-      localStore.entities.StockMovement.list("-created_date", 300),
-      localStore.entities.SaleReturn.list("-created_date", 100),
-    ]).then(([sales, purchases, movements, returns]) => {
-      const timeline = [
-        ...sales.map((sale) => ({ id: `sale-${sale.id}`, type: "Sales", date: sale.created_date, person: sale.cashier_name || "Unknown user", title: `Completed ${sale.sale_number}`, detail: `${sale.customer_name || "Walk-in Customer"} · ${formatGhs(sale.total)}` })),
-        ...purchases.map((purchase) => ({ id: `purchase-${purchase.id}`, type: "Purchases", date: purchase.created_date, person: purchase.created_by_name || "Unknown user", title: `Received ${purchase.purchase_number}`, detail: `${purchase.supplier_name} · ${formatGhs(purchase.total)}` })),
-        ...movements.map((movement) => ({ id: `movement-${movement.id}`, type: "Stock changes", date: movement.created_date, person: movement.created_by_name || "Unknown user", title: `${movement.movement_type.replaceAll("_", " ")} · ${movement.product_name}`, detail: `${movement.quantity > 0 ? "+" : ""}${movement.quantity} units · ${movement.previous_quantity} to ${movement.new_quantity}${movement.notes ? ` · ${movement.notes}` : ""}` })),
-        ...returns.map((saleReturn) => ({ id: `return-${saleReturn.id}`, type: "Returns", date: saleReturn.created_date, person: saleReturn.approved_by_name || "Owner", title: `Approved return for ${saleReturn.sale_number}`, detail: `${saleReturn.customer_name} · ${formatGhs(saleReturn.refund_amount)} refunded` })),
-      ].sort((a, b) => new Date(b.date) - new Date(a.date));
-      setEvents(timeline);
-    }).finally(() => setLoading(false));
+    const fetchActivity = () => {
+      Promise.all([
+        localStore.entities.Sale.list("-created_date", 200),
+        localStore.entities.Purchase.list("-created_date", 200),
+        localStore.entities.StockMovement.list("-created_date", 300),
+        localStore.entities.SaleReturn.list("-created_date", 100),
+      ]).then(([sales, purchases, movements, returns]) => {
+        const timeline = [
+          ...sales.map((sale) => ({ id: `sale-${sale.id}`, type: "Sales", date: sale.created_date, person: sale.cashier_name || "Unknown user", title: `Completed ${sale.sale_number}`, detail: `${sale.customer_name || "Walk-in Customer"} · ${formatGhs(sale.total)}` })),
+          ...purchases.map((purchase) => ({ id: `purchase-${purchase.id}`, type: "Purchases", date: purchase.created_date, person: purchase.created_by_name || "Unknown user", title: `Received ${purchase.purchase_number}`, detail: `${purchase.supplier_name} · ${formatGhs(purchase.total)}` })),
+          ...movements.map((movement) => ({ id: `movement-${movement.id}`, type: "Stock changes", date: movement.created_date, person: movement.created_by_name || "Unknown user", title: `${movement.movement_type.replaceAll("_", " ")} · ${movement.product_name}`, detail: `${movement.quantity > 0 ? "+" : ""}${movement.quantity} units · ${movement.previous_quantity} to ${movement.new_quantity}${movement.notes ? ` · ${movement.notes}` : ""}` })),
+          ...returns.map((saleReturn) => ({ id: `return-${saleReturn.id}`, type: "Returns", date: saleReturn.created_date, person: saleReturn.approved_by_name || "Owner", title: `Approved return for ${saleReturn.sale_number}`, detail: `${saleReturn.customer_name} · ${formatGhs(saleReturn.refund_amount)} refunded` })),
+        ].sort((a, b) => new Date(b.date) - new Date(a.date));
+        setEvents(timeline);
+      }).finally(() => setLoading(false));
+    };
+
+    fetchActivity();
+
+    window.addEventListener("anb_data_synced", fetchActivity);
+    return () => window.removeEventListener("anb_data_synced", fetchActivity);
   }, []);
 
   const visible = filter === "All activity" ? events : events.filter((event) => event.type === filter);

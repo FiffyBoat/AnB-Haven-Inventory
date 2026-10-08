@@ -1,4 +1,5 @@
 import { saveToIndexedDb, loadFromIndexedDb } from "./indexedDbStorage";
+import { syncManager } from "./syncManager";
 
 const STORAGE_KEY = "anb-inventory-local-data-v1";
 const SESSION_KEY = "anb-inventory-local-session-v1";
@@ -92,6 +93,50 @@ function save(data) {
   saveToIndexedDb(STORAGE_KEY, data);
 }
 
+// Merge remote updates into local data without re-triggering sync queue
+function applyRemoteSync(remoteRecords) {
+  if (!Array.isArray(remoteRecords) || remoteRecords.length === 0) return;
+  const data = load();
+  let changed = false;
+
+  for (const r of remoteRecords) {
+    const { entity: entityName, id: recordId, data: recordData, updated_date: remoteUpdated, deleted } = r;
+    if (!entityNames.includes(entityName)) continue;
+
+    const list = data[entityName] || [];
+    const index = list.findIndex((item) => item.id === recordId);
+
+    if (deleted) {
+      if (index >= 0) {
+        list.splice(index, 1);
+        changed = true;
+      }
+    } else if (recordData && typeof recordData === "object") {
+      if (index >= 0) {
+        const localUpdated = list[index].updated_date || list[index].created_date || "";
+        // Last-write-wins: remote wins if timestamp is equal or newer
+        if (!localUpdated || new Date(remoteUpdated || recordData.updated_date || 0) >= new Date(localUpdated)) {
+          list[index] = { ...recordData, id: recordId };
+          changed = true;
+        }
+      } else {
+        list.push({ ...recordData, id: recordId });
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    save(data);
+  }
+}
+
+// Register callbacks with sync manager
+syncManager.registerLocalStoreCallbacks({
+  applyRemoteSync,
+  getAllLocalData: () => load(),
+});
+
 // Background sync: if localStorage was cleared, automatically recover from IndexedDB
 if (typeof window !== "undefined") {
   loadFromIndexedDb(STORAGE_KEY).then((idbData) => {
@@ -135,6 +180,7 @@ function create(name, fields) {
   const item = { id: id(), created_date: now(), updated_date: now(), ...clone(fields) };
   data[name].push(item);
   save(data);
+  syncManager.enqueue(name, item.id, "UPSERT", item);
   return Promise.resolve(clone(item));
 }
 
@@ -144,6 +190,7 @@ function update(name, itemId, fields) {
   if (index < 0) return Promise.reject(new Error(`${name} not found`));
   data[name][index] = { ...data[name][index], ...clone(fields), updated_date: now() };
   save(data);
+  syncManager.enqueue(name, itemId, "UPSERT", data[name][index]);
   return Promise.resolve(clone(data[name][index]));
 }
 
@@ -151,6 +198,7 @@ function remove(name, itemId) {
   const data = load();
   data[name] = data[name].filter((item) => item.id !== itemId);
   save(data);
+  syncManager.enqueue(name, itemId, "DELETE", null);
   return Promise.resolve();
 }
 
@@ -176,12 +224,14 @@ function applyStockChange(data, product, delta, movementType, reference = {}, no
   if (next < 0) throw new Error(`Insufficient stock for ${product.name} (available: ${previous})`);
   product.current_stock = next;
   product.updated_date = now();
-  data.StockMovement.push({
+  const movement = {
     id: id(), created_date: now(), updated_date: now(), product_id: product.id, product_name: product.name,
     movement_type: movementType, quantity: delta, previous_quantity: previous, new_quantity: next,
     reference_type: reference.type || "", reference_id: reference.id || "", notes,
     created_by_name: currentUser()?.full_name || "Unknown user",
-  });
+  };
+  data.StockMovement.push(movement);
+  return movement;
 }
 
 function currentUser() {
@@ -246,17 +296,37 @@ function createSale(body) {
     cashier_id: user.id, cashier_name: user.full_name || user.email, subtotal, discount: saleDiscount, total, amount_paid: amountPaid, credit_amount: creditAmount, payments, status: "COMPLETED",
     items: lines.map((line) => ({ product_id: line.product.id, product_name: line.product.name, unit_id: line.units.length === 1 ? line.units[0].id : "", identifier: line.units.map((unit) => unit.imei_1 || unit.serial_number).join(", "), quantity: line.quantity, unit_price: line.unit_price, unit_cost: line.unit_cost, discount: line.discount, total: line.total })),
   };
+
+  const createdMovements = [];
   lines.forEach((line) => {
-    applyStockChange(data, line.product, -line.quantity, "SALE", { type: "SALE", id: sale.id }, `Sale ${sale.sale_number}`);
+    const sm = applyStockChange(data, line.product, -line.quantity, "SALE", { type: "SALE", id: sale.id }, `Sale ${sale.sale_number}`);
+    if (sm) createdMovements.push(sm);
     line.units.forEach((unit) => { unit.status = "SOLD"; unit.sale_id = sale.id; unit.updated_date = now(); });
   });
-  if (creditAmount) {
+
+  let creditTx = null;
+  if (creditAmount && customer) {
     customer.current_balance = round2(customer.current_balance) + creditAmount;
     customer.updated_date = now();
-    data.CreditTransaction.push({ id: id(), created_date: now(), updated_date: now(), customer_id: customer.id, customer_name: customer.name, transaction_type: "CREDIT_SALE", amount: creditAmount, balance_after: customer.current_balance, sale_id: sale.id, description: `Credit from sale ${sale.sale_number}`, created_by_name: user.full_name });
+    creditTx = { id: id(), created_date: now(), updated_date: now(), customer_id: customer.id, customer_name: customer.name, transaction_type: "CREDIT_SALE", amount: creditAmount, balance_after: customer.current_balance, sale_id: sale.id, description: `Credit from sale ${sale.sale_number}`, created_by_name: user.full_name };
+    data.CreditTransaction.push(creditTx);
   }
   data.Sale.push(sale);
   save(data);
+
+  // Enqueue to offline/online sync queue
+  const syncBatch = [
+    { entity: "Sale", recordId: sale.id, action: "UPSERT", payload: sale },
+    ...lines.map((line) => ({ entity: "Product", recordId: line.product.id, action: "UPSERT", payload: line.product })),
+    ...lines.flatMap((line) => (line.units || []).map((u) => ({ entity: "ProductUnit", recordId: u.id, action: "UPSERT", payload: u }))),
+    ...createdMovements.map((sm) => ({ entity: "StockMovement", recordId: sm.id, action: "UPSERT", payload: sm })),
+  ];
+  if (creditAmount && customer) {
+    syncBatch.push({ entity: "Customer", recordId: customer.id, action: "UPSERT", payload: customer });
+    if (creditTx) syncBatch.push({ entity: "CreditTransaction", recordId: creditTx.id, action: "UPSERT", payload: creditTx });
+  }
+  syncManager.enqueueBatch(syncBatch);
+
   return { sale: clone(sale) };
 }
 
@@ -267,6 +337,10 @@ function createPurchase(body) {
   const inputs = Array.isArray(body.items) ? body.items : [];
   if (!supplier || !inputs.length) throw new Error("Select a supplier and at least one product");
   const purchaseNumber = `PUR-${Date.now().toString(36).toUpperCase()}`;
+  const createdUnits = [];
+  const createdMovements = [];
+  const updatedProducts = [];
+
   const items = inputs.map((input) => {
     const product = data.Product.find((item) => item.id === input.product_id);
     const quantity = Math.floor(Number(input.quantity) || 0);
@@ -277,14 +351,29 @@ function createPurchase(body) {
     identifiers.forEach((identifier) => {
       if (data.ProductUnit.some((unit) => unit.imei_1 === identifier || unit.serial_number === identifier)) throw new Error(`${identifier} is already registered`);
     });
-    applyStockChange(data, product, quantity, "PURCHASE", { type: "PURCHASE", id: purchaseNumber }, `Purchase ${purchaseNumber} from ${supplier.name}`);
+    const sm = applyStockChange(data, product, quantity, "PURCHASE", { type: "PURCHASE", id: purchaseNumber }, `Purchase ${purchaseNumber} from ${supplier.name}`);
+    if (sm) createdMovements.push(sm);
     if (unitCost > 0) product.cost_price = unitCost;
-    identifiers.forEach((identifier) => data.ProductUnit.push({ id: id(), created_date: now(), updated_date: now(), product_id: product.id, product_name: product.name, imei_1: product.track_imei ? identifier : "", serial_number: product.track_serial ? identifier : "", status: "IN_STOCK" }));
+    updatedProducts.push(product);
+    identifiers.forEach((identifier) => {
+      const u = { id: id(), created_date: now(), updated_date: now(), product_id: product.id, product_name: product.name, imei_1: product.track_imei ? identifier : "", serial_number: product.track_serial ? identifier : "", status: "IN_STOCK" };
+      data.ProductUnit.push(u);
+      createdUnits.push(u);
+    });
     return { product_id: product.id, product_name: product.name, quantity, unit_cost: unitCost, total_cost: round2(quantity * unitCost), unit_identifiers: identifiers };
   });
   const purchase = { id: id(), created_date: now(), updated_date: now(), purchase_number: purchaseNumber, supplier_id: supplier.id, supplier_name: supplier.name, items, total: round2(items.reduce((sum, item) => sum + item.total_cost, 0)), payment_status: ["PAID", "PARTIAL", "UNPAID"].includes(body.payment_status) ? body.payment_status : "UNPAID", notes: body.notes || "", created_by_name: currentUser()?.full_name || "Unknown user" };
   data.Purchase.push(purchase);
   save(data);
+
+  // Enqueue sync
+  syncManager.enqueueBatch([
+    { entity: "Purchase", recordId: purchase.id, action: "UPSERT", payload: purchase },
+    ...updatedProducts.map((p) => ({ entity: "Product", recordId: p.id, action: "UPSERT", payload: p })),
+    ...createdUnits.map((u) => ({ entity: "ProductUnit", recordId: u.id, action: "UPSERT", payload: u })),
+    ...createdMovements.map((sm) => ({ entity: "StockMovement", recordId: sm.id, action: "UPSERT", payload: sm })),
+  ]);
+
   return { purchase: clone(purchase) };
 }
 
@@ -295,8 +384,14 @@ function adjustStock(body) {
   const delta = Math.floor(Number(body.delta) || 0);
   if (!product || !delta) throw new Error("Select a product and a non-zero adjustment");
   const allowed = ["ADJUSTMENT_IN", "ADJUSTMENT_OUT", "DAMAGE", "LOST", "OPENING_STOCK"];
-  applyStockChange(data, product, delta, allowed.includes(body.reason) ? body.reason : delta > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT", { type: "ADJUSTMENT" }, body.notes || "");
+  const sm = applyStockChange(data, product, delta, allowed.includes(body.reason) ? body.reason : delta > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT", { type: "ADJUSTMENT" }, body.notes || "");
   save(data);
+
+  syncManager.enqueueBatch([
+    { entity: "Product", recordId: product.id, action: "UPSERT", payload: product },
+    ...(sm ? [{ entity: "StockMovement", recordId: sm.id, action: "UPSERT", payload: sm }] : []),
+  ]);
+
   return { product_id: product.id, new_quantity: product.current_stock };
 }
 
@@ -317,8 +412,18 @@ function reconcileStockCount(body) {
   });
   const adjusted = changes.filter((change) => change.delta !== 0);
   if (!adjusted.length) return { adjusted: 0 };
-  adjusted.forEach((change) => applyStockChange(data, change.product, change.delta, change.delta > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT", { type: "STOCK_COUNT", id: "" }, notes));
+  const createdMovements = [];
+  adjusted.forEach((change) => {
+    const sm = applyStockChange(data, change.product, change.delta, change.delta > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT", { type: "STOCK_COUNT", id: "" }, notes);
+    if (sm) createdMovements.push(sm);
+  });
   save(data);
+
+  syncManager.enqueueBatch([
+    ...adjusted.map((change) => ({ entity: "Product", recordId: change.product.id, action: "UPSERT", payload: change.product })),
+    ...createdMovements.map((sm) => ({ entity: "StockMovement", recordId: sm.id, action: "UPSERT", payload: sm })),
+  ]);
+
   return { adjusted: adjusted.length };
 }
 
@@ -331,8 +436,15 @@ function recordCreditPayment(body) {
   if (amount > balance) throw new Error("Payment cannot exceed the outstanding balance");
   customer.current_balance = round2(balance - amount);
   customer.updated_date = now();
-  data.CreditTransaction.push({ id: id(), created_date: now(), updated_date: now(), customer_id: customer.id, customer_name: customer.name, transaction_type: "CREDIT_PAYMENT", amount, balance_after: customer.current_balance, description: body.description || "Credit repayment", created_by_name: currentUser()?.full_name || "Unknown user" });
+  const creditTx = { id: id(), created_date: now(), updated_date: now(), customer_id: customer.id, customer_name: customer.name, transaction_type: "CREDIT_PAYMENT", amount, balance_after: customer.current_balance, description: body.description || "Credit repayment", created_by_name: currentUser()?.full_name || "Unknown user" };
+  data.CreditTransaction.push(creditTx);
   save(data);
+
+  syncManager.enqueueBatch([
+    { entity: "Customer", recordId: customer.id, action: "UPSERT", payload: customer },
+    { entity: "CreditTransaction", recordId: creditTx.id, action: "UPSERT", payload: creditTx },
+  ]);
+
   return { customer_id: customer.id, balance: customer.current_balance };
 }
 
@@ -360,25 +472,35 @@ function returnSale(body) {
   if (refundAmount <= 0) throw new Error("This sale has already been fully refunded");
   const refundMethod = ["CASH", "MOBILE_MONEY", "CREDIT_BALANCE"].includes(body.refund_method) ? body.refund_method : "CASH";
   const returnRecord = { id: id(), created_date: now(), updated_date: now(), sale_id: sale.id, sale_number: sale.sale_number, customer_id: sale.customer_id || "", customer_name: sale.customer_name || "Walk-in Customer", refund_amount: refundAmount, refund_method: refundMethod, reason, restock: body.restock !== false, approved_by_name: currentUser()?.full_name || "Owner", items: [] };
+  
+  let creditTx = null;
+  let customer = null;
   if (refundMethod === "CREDIT_BALANCE") {
-    const customer = data.Customer.find((item) => item.id === sale.customer_id);
+    customer = data.Customer.find((item) => item.id === sale.customer_id);
     if (!customer || (Number(customer.current_balance) || 0) < refundAmount) throw new Error("Customer balance is too low for a credit-balance refund");
     customer.current_balance = round2(customer.current_balance - refundAmount);
     customer.updated_date = now();
-    data.CreditTransaction.push({ id: id(), created_date: now(), updated_date: now(), customer_id: customer.id, customer_name: customer.name, transaction_type: "CREDIT_ADJUSTMENT", amount: refundAmount, balance_after: customer.current_balance, sale_id: sale.id, description: `Return against sale ${sale.sale_number}`, created_by_name: currentUser()?.full_name || "Owner" });
+    creditTx = { id: id(), created_date: now(), updated_date: now(), customer_id: customer.id, customer_name: customer.name, transaction_type: "CREDIT_ADJUSTMENT", amount: refundAmount, balance_after: customer.current_balance, sale_id: sale.id, description: `Return against sale ${sale.sale_number}`, created_by_name: currentUser()?.full_name || "Owner" };
+    data.CreditTransaction.push(creditTx);
   }
+  const createdMovements = [];
+  const updatedUnits = [];
+  const updatedProducts = [];
+
   for (const line of lines) {
     line.item.returned_quantity = (Number(line.item.returned_quantity) || 0) + line.quantity;
     const product = data.Product.find((item) => item.id === line.item.product_id);
     if (body.restock !== false && product) {
-      applyStockChange(data, product, line.quantity, "SALE_RETURN", { type: "SALE_RETURN", id: returnRecord.id }, `Return ${returnRecord.id}: ${reason}`);
+      const sm = applyStockChange(data, product, line.quantity, "SALE_RETURN", { type: "SALE_RETURN", id: returnRecord.id }, `Return ${returnRecord.id}: ${reason}`);
+      if (sm) createdMovements.push(sm);
+      updatedProducts.push(product);
       if (line.item.unit_id) {
         const unit = data.ProductUnit.find((item) => item.id === line.item.unit_id);
-        if (unit) { unit.status = "IN_STOCK"; unit.sale_id = ""; unit.updated_date = now(); }
+        if (unit) { unit.status = "IN_STOCK"; unit.sale_id = ""; unit.updated_date = now(); updatedUnits.push(unit); }
       }
     } else if (line.item.unit_id) {
       const unit = data.ProductUnit.find((item) => item.id === line.item.unit_id);
-      if (unit) { unit.status = "RETURNED"; unit.updated_date = now(); }
+      if (unit) { unit.status = "RETURNED"; unit.updated_date = now(); updatedUnits.push(unit); }
     }
     returnRecord.items.push({ sale_item_index: line.index, product_id: line.item.product_id, product_name: line.item.product_name, quantity: line.quantity, refund_amount: round2(line.lineTotal * ((Number(sale.total) || 0) / (totalLineValue || 1))) });
   }
@@ -386,6 +508,19 @@ function returnSale(body) {
   sale.updated_date = now();
   data.SaleReturn.push(returnRecord);
   save(data);
+
+  // Enqueue sync
+  const syncBatch = [
+    { entity: "Sale", recordId: sale.id, action: "UPSERT", payload: sale },
+    { entity: "SaleReturn", recordId: returnRecord.id, action: "UPSERT", payload: returnRecord },
+    ...updatedProducts.map((p) => ({ entity: "Product", recordId: p.id, action: "UPSERT", payload: p })),
+    ...updatedUnits.map((u) => ({ entity: "ProductUnit", recordId: u.id, action: "UPSERT", payload: u })),
+    ...createdMovements.map((sm) => ({ entity: "StockMovement", recordId: sm.id, action: "UPSERT", payload: sm })),
+  ];
+  if (customer) syncBatch.push({ entity: "Customer", recordId: customer.id, action: "UPSERT", payload: customer });
+  if (creditTx) syncBatch.push({ entity: "CreditTransaction", recordId: creditTx.id, action: "UPSERT", payload: creditTx });
+  syncManager.enqueueBatch(syncBatch);
+
   return { return_record: clone(returnRecord) };
 }
 
@@ -411,6 +546,7 @@ export const localStore = {
       const user = { id: id(), created_date: now(), updated_date: now(), full_name: full_name.trim(), username: cleanUsername, role: role === "admin" ? "admin" : "user", status: "active", password_hash: passwordHash(password), must_change_password: false, password_reset_requested: false };
       data.User.push(user);
       save(data);
+      syncManager.enqueue("User", user.id, "UPSERT", user);
       return clone(user);
     },
     requestPasswordReset: async (username) => {
@@ -420,6 +556,7 @@ export const localStore = {
       user.password_reset_requested = true;
       user.updated_date = now();
       save(data);
+      syncManager.enqueue("User", user.id, "UPSERT", user);
     },
     setPassword: async (userId, password) => {
       requireOwner();
@@ -432,6 +569,7 @@ export const localStore = {
       user.must_change_password = false;
       user.updated_date = now();
       save(data);
+      syncManager.enqueue("User", user.id, "UPSERT", user);
     },
     revokeAccount: async (userId) => {
       requireOwner();
@@ -443,6 +581,7 @@ export const localStore = {
       user.password_reset_requested = false;
       user.updated_date = now();
       save(data);
+      syncManager.enqueue("User", user.id, "UPSERT", user);
     },
   },
   auth: {
@@ -472,4 +611,5 @@ export const localStore = {
     },
   },
   reset: () => { localStorage.removeItem(STORAGE_KEY); window.location.reload(); },
+  sync: syncManager,
 };

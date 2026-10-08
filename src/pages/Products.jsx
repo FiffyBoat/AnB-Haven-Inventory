@@ -25,7 +25,11 @@ export default function Products() {
       .then(([p, c]) => { setProducts(p); setCategories(c.filter((x) => x.status === "active")); setLoading(false); })
       .catch(() => setLoading(false));
   };
-  useEffect(refresh, []);
+  useEffect(() => {
+    refresh();
+    window.addEventListener("anb_data_synced", refresh);
+    return () => window.removeEventListener("anb_data_synced", refresh);
+  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

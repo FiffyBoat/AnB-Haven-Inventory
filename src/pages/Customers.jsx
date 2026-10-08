@@ -24,7 +24,11 @@ export default function Customers() {
       .then((c) => { setCustomers(c); setLoading(false); })
       .catch(() => setLoading(false));
   };
-  useEffect(refresh, []);
+  useEffect(() => {
+    refresh();
+    window.addEventListener("anb_data_synced", refresh);
+    return () => window.removeEventListener("anb_data_synced", refresh);
+  }, []);
 
   const filtered = customers.filter((c) => {
     const q = query.trim().toLowerCase();

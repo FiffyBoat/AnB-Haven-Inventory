@@ -25,6 +25,12 @@ A fast, reliable inventory and point-of-sale application built for A N B Haven V
 * **Dual-Layer Offline Storage**:
   * Records are kept simultaneously in browser `localStorage` and `IndexedDB`. If browser cache is cleared, data auto-recovers from IndexedDB.
   * Export & restore full JSON backups anytime via **Data & Backup**.
+* **Offline & Online Cloud Sync (Supabase / PostgreSQL)**:
+  * **100% Offline-Resilient**: Cashiers at the shop can register sales, adjust stock, scan barcodes, and accept payments with zero downtime even when internet is completely disconnected.
+  * **Automated Offline Queue**: Offline transactions are queued safely in IndexedDB/LocalStorage and automatically pushed to the cloud once internet reconnects.
+  * **Remote Owner Access**: The owner can open the app on a mobile phone, tablet, or home computer to view live sales, gross profit, cash in drawer, MoMo collections, and debtors in real time.
+  * **Real-time Live Updates**: Supabase Realtime automatically syncs store activities across all connected devices within milliseconds.
+  * **1-Click Cloud Setup**: Easily configured in the UI under **Data & Backup** (or via `.env` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`).
 * **Authentication & Roles**:
   * Default owner sign-in: **`owner`** / **`change-me`** (quick-fill button available on login screen).
   * Staff accounts, roles (Owner/Admin, Sales Associate, Inventory Manager), and password resets managed under **Team**.

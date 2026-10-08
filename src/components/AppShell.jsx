@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import NavItem from "@/components/NavItem";
 import TabletBottomNav from "@/components/TabletBottomNav";
+import SyncStatusBadge from "@/components/SyncStatusBadge";
 import { useAuth } from "@/lib/AuthContext";
 
 const OWNER_NAV = [
@@ -51,7 +52,8 @@ export default function AppShell({ children, pageLabel = "Inventory & POS" }) {
             <p className="text-figma-14 font-normal leading-figma-18 text-[#111111]">{pageLabel}</p>
           </div>
         </div>
-        <div className="flex flex-row items-center justify-end" style={{ gap: 4 }}>
+        <div className="flex flex-row items-center justify-end" style={{ gap: 8 }}>
+          <SyncStatusBadge />
           <div className="hidden md:flex flex-row items-center rounded-[100px] bg-white" style={{ height: 50, paddingLeft: 16, paddingRight: 16, gap: 8 }}>
             <span className="text-figma-14 text-[#111111]">{currentUser?.full_name || ""}</span>
             <span className="text-figma-14 font-medium px-2 py-0.5 rounded-full" style={{ background: isOwner ? "#111111" : "#FF9000", color: isOwner ? "#fff" : "#111111" }}>

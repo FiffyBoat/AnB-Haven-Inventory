@@ -1,0 +1,167 @@
+import { createClient } from "@supabase/supabase-js";
+
+const CONFIG_STORAGE_KEY = "anb_supabase_config_v1";
+
+// Helper to read stored config or fallback to Vite environment variables
+export function getStoredSupabaseConfig() {
+  if (typeof window === "undefined") {
+    return {
+      url: import.meta.env?.VITE_SUPABASE_URL || "",
+      anonKey: import.meta.env?.VITE_SUPABASE_ANON_KEY || "",
+    };
+  }
+
+  try {
+    const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.url && parsed?.anonKey) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to parse stored Supabase config:", e);
+  }
+
+  return {
+    url: (import.meta.env?.VITE_SUPABASE_URL || "").trim(),
+    anonKey: (import.meta.env?.VITE_SUPABASE_ANON_KEY || "").trim(),
+  };
+}
+
+export function saveSupabaseConfig(url, anonKey) {
+  const cleanUrl = String(url || "").trim().replace(/\/+$/, "");
+  const cleanKey = String(anonKey || "").trim();
+
+  if (typeof window !== "undefined") {
+    if (!cleanUrl && !cleanKey) {
+      localStorage.removeItem(CONFIG_STORAGE_KEY);
+    } else {
+      localStorage.setItem(
+        CONFIG_STORAGE_KEY,
+        JSON.stringify({ url: cleanUrl, anonKey: cleanKey })
+      );
+    }
+  }
+
+  // Reset client instance
+  clientInstance = null;
+  window.dispatchEvent(new CustomEvent("anb_supabase_config_changed"));
+}
+
+export function clearSupabaseConfig() {
+  saveSupabaseConfig("", "");
+}
+
+let clientInstance = null;
+
+export function getSupabase() {
+  const { url, anonKey } = getStoredSupabaseConfig();
+  if (!url || !anonKey) return null;
+
+  if (!clientInstance) {
+    try {
+      clientInstance = createClient(url, anonKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      });
+    } catch (err) {
+      console.error("Error initializing Supabase client:", err);
+      clientInstance = null;
+    }
+  }
+  return clientInstance;
+}
+
+export function isSupabaseConfigured() {
+  const { url, anonKey } = getStoredSupabaseConfig();
+  return Boolean(url && anonKey);
+}
+
+/**
+ * Tests connection to Supabase and verifies if `anb_sync_records` table exists.
+ */
+export async function testSupabaseConnection() {
+  const supabase = getSupabase();
+  if (!supabase) {
+    return {
+      success: false,
+      error: "Supabase URL and Anon Key are not configured yet.",
+    };
+  }
+
+  try {
+    const { error } = await supabase
+      .from("anb_sync_records")
+      .select("entity", { count: "exact", head: true })
+      .limit(1);
+
+    if (error) {
+      // Check if table missing
+      if (error.code === "42P01" || error.message?.includes("does not exist")) {
+        return {
+          success: false,
+          tableMissing: true,
+          error: "Connected to Supabase, but the `anb_sync_records` table does not exist yet. Please run the SQL setup script.",
+        };
+      }
+      return {
+        success: false,
+        error: error.message || "Failed to query Supabase.",
+      };
+    }
+
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err.message || "Network error while connecting to Supabase.",
+    };
+  }
+}
+
+export const SUPABASE_SQL_SETUP_SCRIPT = `-- A N B Haven Ventures Inventory & POS Cloud Sync Table
+-- Run this in your Supabase Project -> SQL Editor
+
+CREATE TABLE IF NOT EXISTS public.anb_sync_records (
+  entity text NOT NULL,
+  id text NOT NULL,
+  data jsonb NOT NULL,
+  updated_date timestamptz NOT NULL DEFAULT now(),
+  deleted boolean NOT NULL DEFAULT false,
+  synced_by text DEFAULT NULL,
+  PRIMARY KEY (entity, id)
+);
+
+-- Index for speedy incremental sync by entity and timestamp
+CREATE INDEX IF NOT EXISTS idx_anb_sync_records_entity_updated 
+  ON public.anb_sync_records (entity, updated_date);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE public.anb_sync_records ENABLE ROW LEVEL SECURITY;
+
+-- Allow anonymous access using project public anon key
+DROP POLICY IF EXISTS "Allow anon all on anb_sync_records" ON public.anb_sync_records;
+CREATE POLICY "Allow anon all on anb_sync_records" 
+  ON public.anb_sync_records 
+  FOR ALL 
+  TO anon 
+  USING (true) 
+  WITH CHECK (true);
+
+-- Enable Supabase Realtime for instant multi-device live sync
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'anb_sync_records'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.anb_sync_records;
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  -- Realtime publication might vary depending on project tier, ignore if already enabled
+  NULL;
+END $$;
+`;

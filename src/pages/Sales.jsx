@@ -28,9 +28,16 @@ export default function Sales() {
   const [returning, setReturning] = useState(false);
 
   useEffect(() => {
-    localStore.entities.Sale.list("-created_date", 300)
-      .then((s) => { setSales(s); setLoading(false); })
-      .catch(() => setLoading(false));
+    const fetchSales = () => {
+      localStore.entities.Sale.list("-created_date", 300)
+        .then((s) => { setSales(s); setLoading(false); })
+        .catch(() => setLoading(false));
+    };
+
+    fetchSales();
+
+    window.addEventListener("anb_data_synced", fetchSales);
+    return () => window.removeEventListener("anb_data_synced", fetchSales);
   }, []);
 
   const filtered = useMemo(() => {

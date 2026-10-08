@@ -18,6 +18,8 @@ import {
   ReceiptText,
   Calendar,
   UserCheck,
+  Package,
+  Users,
 } from "lucide-react";
 
 const containerVariants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } };
@@ -31,18 +33,29 @@ export default function Dashboard() {
   const [customers, setCustomers] = useState([]);
 
   useEffect(() => {
-    Promise.all([
-      localStore.entities.Product.list(),
-      localStore.entities.Sale.list("-created_date", 200),
-      localStore.entities.Customer.list(),
-    ])
-      .then(([p, s, c]) => {
-        setProducts(p);
-        setSales(s);
-        setCustomers(c);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    const fetchData = () => {
+      Promise.all([
+        localStore.entities.Product.list(),
+        localStore.entities.Sale.list("-created_date", 200),
+        localStore.entities.Customer.list(),
+      ])
+        .then(([p, s, c]) => {
+          setProducts(p);
+          setSales(s);
+          setCustomers(c);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    };
+
+    fetchData();
+
+    const handleSync = () => {
+      fetchData();
+    };
+
+    window.addEventListener("anb_data_synced", handleSync);
+    return () => window.removeEventListener("anb_data_synced", handleSync);
   }, []);
 
   if (!user) return null;
