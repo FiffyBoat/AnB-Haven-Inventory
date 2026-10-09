@@ -12,8 +12,15 @@ export function AuthProvider({ children }) {
     const onStorage = (event) => {
       if (event.key === "anb-inventory-local-data-v1") localStore.auth.me().then(setUser);
     };
+    const onSynced = () => {
+      localStore.auth.me().then(setUser);
+    };
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    window.addEventListener("anb_data_synced", onSynced);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("anb_data_synced", onSynced);
+    };
   }, []);
 
   const refreshUser = async () => {

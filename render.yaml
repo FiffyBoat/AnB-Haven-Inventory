@@ -8,3 +8,9 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+    envVars:
+      - key: VITE_SUPABASE_URL
+        value: https://ngiveravqbumlbfgwktn.supabase.co
+      - key: VITE_SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5naXZlcmF2cWJ1bWxiZmd3a3RuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NjY0NzMsImV4cCI6MjEwNzA0MjQ3M30.haKP2RFrnWASnveNhYLu1_V7Htw8NijjZsG-OfPSYWM
+

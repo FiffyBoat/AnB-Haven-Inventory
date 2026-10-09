@@ -446,6 +446,16 @@ class SyncManager {
       if (allRecords.length > 0) {
         this.applyRemoteSyncCallback(allRecords);
 
+        // If this device was fresh without any local sales, clear any phantom queue items
+        if (this.queue.length > 0) {
+          const localData = this.getAllLocalDataCallback ? this.getAllLocalDataCallback() : null;
+          const hasNoLocalSales = !localData || !localData.Sale || localData.Sale.length === 0;
+          if (hasNoLocalSales) {
+            this.queue = [];
+            this.saveQueue();
+          }
+        }
+
         const maxUpdated = allRecords.reduce((max, r) => {
           return !max || new Date(r.updated_date) > new Date(max)
             ? r.updated_date

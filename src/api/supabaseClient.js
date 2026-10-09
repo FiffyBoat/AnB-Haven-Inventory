@@ -2,12 +2,16 @@ import { createClient } from "@supabase/supabase-js";
 
 const CONFIG_STORAGE_KEY = "anb_supabase_config_v1";
 
+export const DEFAULT_SUPABASE_URL = "https://ngiveravqbumlbfgwktn.supabase.co";
+export const DEFAULT_SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5naXZlcmF2cWJ1bWxiZmd3a3RuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NjY0NzMsImV4cCI6MjEwNzA0MjQ3M30.haKP2RFrnWASnveNhYLu1_V7Htw8NijjZsG-OfPSYWM";
+
 // Helper to read stored config or fallback to Vite environment variables or URL parameters
 export function getStoredSupabaseConfig() {
   if (typeof window === "undefined") {
     return {
-      url: import.meta.env?.VITE_SUPABASE_URL || "",
-      anonKey: import.meta.env?.VITE_SUPABASE_ANON_KEY || "",
+      url: import.meta.env?.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL,
+      anonKey: import.meta.env?.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY,
     };
   }
 
@@ -47,6 +51,9 @@ export function getStoredSupabaseConfig() {
     const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      if (parsed?.disconnected) {
+        return { url: "", anonKey: "" };
+      }
       if (parsed?.url && parsed?.anonKey) {
         return parsed;
       }
@@ -55,10 +62,13 @@ export function getStoredSupabaseConfig() {
     console.warn("Failed to parse stored Supabase config:", e);
   }
 
-  // 3. Fallback to Vite environment variables
+  // 3. Fallback to Vite environment variables OR built-in project defaults
+  const envUrl = (import.meta.env?.VITE_SUPABASE_URL || "").trim();
+  const envKey = (import.meta.env?.VITE_SUPABASE_ANON_KEY || "").trim();
+
   return {
-    url: (import.meta.env?.VITE_SUPABASE_URL || "").trim(),
-    anonKey: (import.meta.env?.VITE_SUPABASE_ANON_KEY || "").trim(),
+    url: envUrl || DEFAULT_SUPABASE_URL,
+    anonKey: envKey || DEFAULT_SUPABASE_ANON_KEY,
   };
 }
 
@@ -68,7 +78,7 @@ export function saveSupabaseConfig(url, anonKey) {
 
   if (typeof window !== "undefined") {
     if (!cleanUrl && !cleanKey) {
-      localStorage.removeItem(CONFIG_STORAGE_KEY);
+      localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify({ disconnected: true }));
     } else {
       localStorage.setItem(
         CONFIG_STORAGE_KEY,
