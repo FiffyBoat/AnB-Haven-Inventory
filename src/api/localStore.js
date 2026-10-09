@@ -691,7 +691,20 @@ export const localStore = {
   auth: {
     me: async () => currentUser(),
     login: async (username, password) => {
-      const user = load().User.find((item) => item.username?.toLowerCase() === String(username).trim().toLowerCase());
+      let data = load();
+      let user = data.User.find((item) => item.username?.toLowerCase() === String(username).trim().toLowerCase());
+      
+      // If user not found locally, fetch latest users from Supabase cloud
+      if (!user && syncManager.isOnline) {
+        try {
+          await syncManager.pullEntityDirectly("User");
+          data = load();
+          user = data.User.find((item) => item.username?.toLowerCase() === String(username).trim().toLowerCase());
+        } catch {
+          // Fall through
+        }
+      }
+
       if (!user || user.password_hash !== passwordHash(password)) throw new Error("Incorrect username or password");
       if (user.status === "inactive") throw new Error("This account no longer has access");
       sessionStorage.setItem(SESSION_KEY, user.id);
@@ -700,10 +713,24 @@ export const localStore = {
     loginWithPin: async (userIdOrUsername, pin) => {
       const cleanPin = String(pin || "").trim();
       if (!/^\d{4}$/.test(cleanPin)) throw new Error("PIN must be exactly 4 digits");
-      const data = load();
-      const user = data.User.find((item) =>
+      let data = load();
+      let user = data.User.find((item) =>
         item.id === userIdOrUsername || item.username?.toLowerCase() === String(userIdOrUsername).trim().toLowerCase()
       );
+
+      // If user not found locally or has no pin yet, fetch latest users from Supabase cloud
+      if ((!user || !user.pin_hash) && syncManager.isOnline) {
+        try {
+          await syncManager.pullEntityDirectly("User");
+          data = load();
+          user = data.User.find((item) =>
+            item.id === userIdOrUsername || item.username?.toLowerCase() === String(userIdOrUsername).trim().toLowerCase()
+          );
+        } catch {
+          // Fall through
+        }
+      }
+
       if (!user) throw new Error("Account not found");
       if (user.status === "inactive") throw new Error("This account no longer has access");
       if (!user.pin_hash) throw new Error("No 4-digit PIN configured for this account. Please sign in with password first.");

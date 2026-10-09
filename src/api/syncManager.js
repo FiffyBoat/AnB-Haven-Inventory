@@ -48,13 +48,20 @@ class SyncManager {
         }
       }, 45000);
 
-      // Initial setup
-      setTimeout(() => {
+      // Initial setup: start cloud sync immediately on load
+      const startSync = () => {
         this.setupRealtimeSubscription();
         if (this.isOnline && isSupabaseConfigured()) {
           this.triggerSync();
         }
-      }, 1000);
+      };
+
+      if (typeof document !== "undefined" && document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", startSync);
+      } else {
+        // Run on next tick so store callbacks are registered first
+        setTimeout(startSync, 0);
+      }
     }
   }
 
@@ -341,6 +348,44 @@ class SyncManager {
           })
         );
       }
+    }
+  }
+
+  /**
+   * Immediately pulls all records for a specific entity (e.g. "User") directly from Supabase
+   */
+  async pullEntityDirectly(entityName) {
+    const supabase = getSupabase();
+    if (!supabase || !this.isOnline) return [];
+
+    try {
+      const { data: records, error } = await supabase
+        .from("anb_sync_records")
+        .select("entity, id, data, updated_date, deleted")
+        .eq("entity", entityName);
+
+      if (error) {
+        console.warn(`Direct pull for ${entityName} failed:`, error.message);
+        return [];
+      }
+
+      if (records && records.length > 0) {
+        if (this.applyRemoteSyncCallback) {
+          this.applyRemoteSyncCallback(records);
+        }
+
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("anb_data_synced", {
+              detail: { entity: entityName, count: records.length },
+            })
+          );
+        }
+      }
+      return records || [];
+    } catch (err) {
+      console.warn(`Direct pull error for ${entityName}:`, err);
+      return [];
     }
   }
 

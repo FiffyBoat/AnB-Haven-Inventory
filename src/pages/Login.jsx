@@ -66,6 +66,16 @@ export default function Login() {
   const [password, setPassword] = useState("");
 
   const isLockedOut = lockoutSeconds > 0;
+  const [isCloudReady, setIsCloudReady] = useState(() => localStore.sync.getState().isConfigured);
+
+  // Proactively pull cloud data immediately on login page mount
+  useEffect(() => {
+    localStore.sync.triggerSync();
+    const unsubscribe = localStore.sync.subscribe((state) => {
+      setIsCloudReady(state.isConfigured && state.isOnline);
+    });
+    return unsubscribe;
+  }, []);
 
   // Focus username input when shown
   useEffect(() => {
@@ -97,7 +107,7 @@ export default function Login() {
   }, []);
 
   // ── Step 1: Confirm username ──────────────────────────────────────────────
-  const handleContinue = (e) => {
+  const handleContinue = async (e) => {
     e?.preventDefault();
     const trimmed = cashierInput.trim().toLowerCase();
     if (!trimmed) { setMessage("Please enter your username or cashier ID."); return; }
@@ -109,6 +119,21 @@ export default function Login() {
       setMessage("");
       return;
     }
+
+    // Check if account exists locally. If not, fetch latest staff accounts from cloud right now!
+    const staff = await localStore.auth.listActiveStaff();
+    const exists = staff.some((s) => s.username?.toLowerCase() === trimmed);
+    if (!exists && localStore.sync.getState().isOnline) {
+      setBusy(true);
+      try {
+        await localStore.sync.pullEntityDirectly("User");
+      } catch {
+        // Continue
+      } finally {
+        setBusy(false);
+      }
+    }
+
     setConfirmedUsername(trimmed);
     setStep(STEP.PIN);
     setMessage("");
@@ -202,12 +227,23 @@ export default function Login() {
       <section className="w-full max-w-sm bg-white border border-neutral-200 rounded-2xl p-7 shadow-sm">
 
         {/* Brand */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-11 h-11 rounded-full bg-[#111111] text-white flex items-center justify-center font-bold text-xs shrink-0">DHV</div>
-          <div>
-            <h1 className="text-base font-bold text-[#111111] leading-tight">Danny&apos;s Heaven Ventures</h1>
-            <p className="text-[11px] text-neutral-400">Takoradi · Phones, Laptops &amp; Accessories</p>
+        <div className="flex items-center justify-between gap-3 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-full bg-[#111111] text-white flex items-center justify-center font-bold text-xs shrink-0">DHV</div>
+            <div>
+              <h1 className="text-base font-bold text-[#111111] leading-tight">Danny&apos;s Heaven Ventures</h1>
+              <p className="text-[11px] text-neutral-400">Takoradi · Phones, Laptops &amp; Accessories</p>
+            </div>
           </div>
+          {isCloudReady && (
+            <div
+              className="flex items-center gap-1.5 text-[10px] text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100 shrink-0 font-medium select-none"
+              title="Cloud connected: all staff accounts in sync"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Live Cloud</span>
+            </div>
+          )}
         </div>
 
         {/* Tab switcher */}
