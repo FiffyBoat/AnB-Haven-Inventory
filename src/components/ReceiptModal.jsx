@@ -72,7 +72,7 @@ export default function ReceiptModal({ open, onClose, sale, onReturn, autoPrint 
             <p className="mt-1">Thank you for your business!</p>
           </div>
         </div>
-        <div className="flex gap-2 mt-3">
+        <div className="flex gap-2 mt-3 print:hidden">
           <button onClick={() => printDocument("receipt")} className="flex-1 h-12 rounded-full bg-[#111111] text-white text-sm flex items-center justify-center gap-2 cursor-pointer border-none">
             <Printer size={16} /> Print Receipt
           </button>

@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
 import { formatGhs } from "@/lib/format";
 import ProductFormDialog from "@/components/ProductFormDialog";
-import { Search, Plus, Package, Tag } from "lucide-react";
+import { Search, Plus, Package, Tag, Pencil, Trash2, Check, X } from "lucide-react";
 
 export default function Products() {
   const { user } = useAuth();
@@ -19,6 +19,8 @@ export default function Products() {
   const [formOpen, setFormOpen] = useState(false);
   const [catOpen, setCatOpen] = useState(false);
   const [newCat, setNewCat] = useState("");
+  const [editingCatId, setEditingCatId] = useState(null);
+  const [editingCatName, setEditingCatName] = useState("");
 
   const refresh = () => {
     Promise.all([localStore.entities.Product.list(), localStore.entities.Category.list()])
@@ -53,6 +55,79 @@ export default function Products() {
       refresh();
     } catch (err) {
       toast({ title: "Could not add category", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const startEditCategory = (cat) => {
+    setEditingCatId(cat.id);
+    setEditingCatName(cat.name);
+  };
+
+  const cancelEditCategory = () => {
+    setEditingCatId(null);
+    setEditingCatName("");
+  };
+
+  const saveEditCategory = async (cat) => {
+    const trimmed = editingCatName.trim();
+    if (!trimmed) {
+      toast({ title: "Name required", description: "Category name cannot be empty.", variant: "destructive" });
+      return;
+    }
+    // Check duplicates (excluding this category itself)
+    if (categories.some((c) => c.id !== cat.id && c.name.toLowerCase() === trimmed.toLowerCase())) {
+      toast({ title: "Category already exists", description: `"${trimmed}" is already in your list.`, variant: "destructive" });
+      return;
+    }
+
+    try {
+      const oldName = cat.name;
+      await localStore.entities.Category.update(cat.id, { name: trimmed });
+
+      // Automatically update any products that were assigned to the old category name
+      const affectedProducts = products.filter((p) => p.category === oldName);
+      if (affectedProducts.length > 0) {
+        for (const p of affectedProducts) {
+          await localStore.entities.Product.update(p.id, { category: trimmed });
+        }
+      }
+
+      setEditingCatId(null);
+      setEditingCatName("");
+      toast({
+        title: "Category updated!",
+        description: `Renamed to "${trimmed}"${affectedProducts.length > 0 ? ` (${affectedProducts.length} product(s) updated)` : ""}.`,
+      });
+      refresh();
+    } catch (err) {
+      toast({ title: "Could not update category", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const deleteCategory = async (cat) => {
+    const affectedProducts = products.filter((p) => p.category === cat.name);
+    const confirmMessage = affectedProducts.length > 0
+      ? `"${cat.name}" is used by ${affectedProducts.length} product(s). Deleting it will mark those products as Uncategorised.\n\nAre you sure you want to delete "${cat.name}"?`
+      : `Are you sure you want to delete category "${cat.name}"?`;
+
+    if (!window.confirm(confirmMessage)) return;
+
+    try {
+      // Detach category from affected products
+      if (affectedProducts.length > 0) {
+        for (const p of affectedProducts) {
+          await localStore.entities.Product.update(p.id, { category: "" });
+        }
+      }
+
+      await localStore.entities.Category.delete(cat.id);
+      toast({
+        title: "Category deleted",
+        description: `"${cat.name}" has been removed.`,
+      });
+      refresh();
+    } catch (err) {
+      toast({ title: "Could not delete category", description: err.message, variant: "destructive" });
     }
   };
 
@@ -129,21 +204,115 @@ export default function Products() {
         onCreated={() => { setFormOpen(false); refresh(); }} />
 
       {catOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setCatOpen(false)}>
-          <div className="bg-white rounded-3xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm font-medium text-[#111111] mb-3">Product Categories</p>
-            <div className="flex flex-wrap gap-2 mb-4 max-h-48 overflow-y-auto">
-              {categories.map((c) => (
-                <span key={c.id} className="px-3 py-1.5 rounded-full bg-neutral-100 text-xs text-[#111111]">{c.name}</span>
-              ))}
-              {categories.length === 0 && <p className="text-xs text-neutral-400">No categories yet.</p>}
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => { setCatOpen(false); cancelEditCategory(); }}>
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="text-base font-semibold text-[#111111]">Product Categories</p>
+                <p className="text-xs text-neutral-400 mt-0.5">{categories.length} active categories</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setCatOpen(false); cancelEditCategory(); }}
+                className="w-8 h-8 rounded-full bg-neutral-100 hover:bg-neutral-200 text-neutral-600 flex items-center justify-center cursor-pointer border-none transition-colors"
+              >
+                <X size={16} />
+              </button>
             </div>
-            <div className="flex gap-2">
-              <input value={newCat} onChange={(e) => setNewCat(e.target.value)}
+
+            <div className="space-y-1.5 mb-4 max-h-60 overflow-y-auto pr-1">
+              {categories.map((c) => {
+                const isEditing = editingCatId === c.id;
+                const prodCount = products.filter((p) => p.category === c.name).length;
+
+                if (isEditing) {
+                  return (
+                    <div key={c.id} className="flex items-center gap-2 p-1.5 bg-amber-50/60 rounded-xl border border-amber-200">
+                      <input
+                        autoFocus
+                        value={editingCatName}
+                        onChange={(e) => setEditingCatName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveEditCategory(c);
+                          if (e.key === "Escape") cancelEditCategory();
+                        }}
+                        className="flex-1 h-9 rounded-lg bg-white border border-amber-300 px-3 text-xs text-[#111111] focus:outline-none focus:ring-1 focus:ring-[#FF9000]"
+                        placeholder="Category name"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => saveEditCategory(c)}
+                        title="Save changes"
+                        className="w-8 h-8 rounded-lg bg-[#111111] hover:bg-black text-white flex items-center justify-center cursor-pointer border-none transition-colors shrink-0"
+                      >
+                        <Check size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEditCategory}
+                        title="Cancel"
+                        className="w-8 h-8 rounded-lg bg-neutral-200 hover:bg-neutral-300 text-neutral-700 flex items-center justify-center cursor-pointer border-none transition-colors shrink-0"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    key={c.id}
+                    className="flex items-center justify-between px-3 py-2 rounded-xl bg-neutral-50 hover:bg-neutral-100 transition-colors border border-neutral-100 group"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-xs font-medium text-[#111111] truncate">{c.name}</span>
+                      <span className="text-[10px] text-neutral-400 bg-white px-2 py-0.5 rounded-full border border-neutral-200/60 shrink-0">
+                        {prodCount} {prodCount === 1 ? "product" : "products"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => startEditCategory(c)}
+                        title={`Rename "${c.name}"`}
+                        className="w-7 h-7 rounded-lg text-neutral-500 hover:text-[#111111] hover:bg-white flex items-center justify-center cursor-pointer border-none transition-all"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteCategory(c)}
+                        title={`Delete "${c.name}"`}
+                        className="w-7 h-7 rounded-lg text-neutral-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center cursor-pointer border-none transition-all"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              {categories.length === 0 && (
+                <div className="text-center py-6 text-neutral-400 text-xs bg-neutral-50 rounded-2xl">
+                  No categories yet. Add one below!
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-neutral-100 flex gap-2">
+              <input
+                value={newCat}
+                onChange={(e) => setNewCat(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addCategory()}
-                placeholder="New category name"
-                className="flex-1 h-11 rounded-xl border border-neutral-200 px-3 text-sm focus:outline-none focus:border-[#FF9000]" />
-              <button onClick={addCategory} className="h-11 px-4 rounded-xl bg-[#111111] text-white text-sm cursor-pointer border-none">Add</button>
+                placeholder="New category name (e.g. Chargers)"
+                className="flex-1 h-11 rounded-xl border border-neutral-200 px-3 text-sm focus:outline-none focus:border-[#FF9000]"
+              />
+              <button
+                type="button"
+                onClick={addCategory}
+                className="h-11 px-5 rounded-xl bg-[#111111] hover:bg-black text-white text-sm font-medium cursor-pointer border-none transition-colors"
+              >
+                Add
+              </button>
             </div>
           </div>
         </div>
