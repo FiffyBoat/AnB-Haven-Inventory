@@ -26,6 +26,11 @@ export function AuthProvider({ children }) {
     setUser(nextUser);
     return nextUser;
   };
+  const loginWithPin = async (userIdOrUsername, pin) => {
+    const nextUser = await localStore.auth.loginWithPin(userIdOrUsername, pin);
+    setUser(nextUser);
+    return nextUser;
+  };
   const logout = () => {
     localStore.auth.logout();
     setUser(null);
@@ -41,6 +46,7 @@ export function AuthProvider({ children }) {
       authChecked: Boolean(user),
       logout,
       login,
+      loginWithPin,
       checkUserAuth: refreshUser,
       checkAppState: refreshUser,
     }}>

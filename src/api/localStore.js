@@ -7,7 +7,7 @@ const BACKUP_FORMAT = "anb-inventory-backup";
 const BACKUP_VERSION = 1;
 
 const entityNames = [
-  "Category", "CreditTransaction", "Customer", "MarketTrend", "Product", "ProductUnit",
+  "Category", "CreditTransaction", "Customer", "DailyClosingLog", "MarketTrend", "Product", "ProductUnit",
   "Purchase", "PurchaseOrder", "Sale", "SaleReturn", "StockMovement", "Supplier", "User",
 ];
 
@@ -60,12 +60,22 @@ function load() {
     if (parsed && typeof parsed === "object") {
       const data = { ...emptyData(), ...parsed };
       const owner = data.User.find((user) => user.id === "local-owner");
-      if (owner && !owner.username) {
-        Object.assign(owner, {
-          username: "owner", password_hash: passwordHash("change-me"),
-          must_change_password: true, password_reset_requested: false, updated_date: now(),
-        });
+      if (owner) {
+        if (!owner.username) {
+          Object.assign(owner, {
+            username: "owner", password_hash: passwordHash("change-me"),
+            must_change_password: true, password_reset_requested: false, updated_date: now(),
+          });
+        }
+        if (!owner.pin_hash) {
+          owner.pin_hash = passwordHash("1234");
+        }
         save(data);
+      }
+      if (Array.isArray(data.Category)) {
+        data.Category.forEach((cat) => {
+          if (!cat.status) cat.status = "active";
+        });
       }
       if (seedStarterCatalog(data)) save(data);
       return data;
@@ -76,7 +86,7 @@ function load() {
   const initial = emptyData();
   initial.User = [{
     id: "local-owner", username: "owner", full_name: "Business Owner", role: "admin",
-    password_hash: passwordHash("change-me"), must_change_password: true,
+    password_hash: passwordHash("change-me"), pin_hash: passwordHash("1234"), must_change_password: true,
     password_reset_requested: false, created_date: now(), updated_date: now(),
   }];
   seedStarterCatalog(initial);
@@ -98,6 +108,22 @@ function applyRemoteSync(remoteRecords) {
   if (!Array.isArray(remoteRecords) || remoteRecords.length === 0) return;
   const data = load();
   let changed = false;
+
+  // On a fresh secondary device that only has the dummy starter catalog,
+  // replace dummy starter products and categories with the real ones from Supabase cloud
+  const hasOnlyStarterData =
+    data.sample_catalog_seeded &&
+    (!data.Sale || data.Sale.length === 0) &&
+    (!data.Purchase || data.Purchase.length === 0) &&
+    (!data.StockMovement || data.StockMovement.length === 0);
+
+  const hasRemoteProducts = remoteRecords.some((r) => r.entity === "Product" && !r.deleted);
+  if (hasOnlyStarterData && hasRemoteProducts) {
+    data.Product = [];
+    data.Category = [];
+    data.sample_catalog_seeded = false;
+    changed = true;
+  }
 
   for (const r of remoteRecords) {
     const { entity: entityName, id: recordId, data: recordData, updated_date: remoteUpdated, deleted } = r;
@@ -177,7 +203,14 @@ function list(name, order, limit) {
 
 function create(name, fields) {
   const data = load();
-  const item = { id: id(), created_date: now(), updated_date: now(), ...clone(fields) };
+  const defaultStatus = ["Category", "Product", "Customer", "Supplier", "User"].includes(name) ? "active" : undefined;
+  const item = {
+    id: id(),
+    created_date: now(),
+    updated_date: now(),
+    ...(defaultStatus ? { status: defaultStatus } : {}),
+    ...clone(fields),
+  };
   data[name].push(item);
   save(data);
   syncManager.enqueue(name, item.id, "UPSERT", item);
@@ -445,7 +478,7 @@ function recordCreditPayment(body) {
     { entity: "CreditTransaction", recordId: creditTx.id, action: "UPSERT", payload: creditTx },
   ]);
 
-  return { customer_id: customer.id, balance: customer.current_balance };
+  return { customer_id: customer.id, balance: customer.current_balance, transaction: clone(creditTx) };
 }
 
 function returnSale(body) {
@@ -524,7 +557,48 @@ function returnSale(body) {
   return { return_record: clone(returnRecord) };
 }
 
-const functions = { createSale, createPurchase, adjustStock, reconcileStockCount, recordCreditPayment, returnSale };
+function saveDailyClosingLog(body) {
+  const data = load();
+  const closingDate = String(body.date || now().slice(0, 10)).trim();
+  if (!closingDate) throw new Error("A valid closing date is required");
+
+  if (!data.DailyClosingLog) data.DailyClosingLog = [];
+
+  const existingIndex = data.DailyClosingLog.findIndex((item) => item.closing_date === closingDate);
+  const closingId = existingIndex >= 0 ? data.DailyClosingLog[existingIndex].id : id();
+  const user = currentUser();
+
+  const closingRecord = {
+    id: closingId,
+    closing_date: closingDate,
+    created_date: existingIndex >= 0 ? data.DailyClosingLog[existingIndex].created_date : now(),
+    updated_date: now(),
+    closed_by_name: user?.full_name || "Business Owner",
+    closed_by_id: user?.id || "local-owner",
+    financials: body.financials || {},
+    cashier_breakdown: body.cashier_breakdown || [],
+    items: Array.isArray(body.items) ? body.items : [],
+    total_items_sold: Number(body.total_items_sold) || 0,
+    total_remaining_stock: Number(body.total_remaining_stock) || 0,
+    total_variance_count: Number(body.total_variance_count) || 0,
+    total_shortage_value: Number(body.total_shortage_value) || 0,
+    notes: String(body.notes || "").trim(),
+    status: "CLOSED",
+  };
+
+  if (existingIndex >= 0) {
+    data.DailyClosingLog[existingIndex] = closingRecord;
+  } else {
+    data.DailyClosingLog.push(closingRecord);
+  }
+
+  save(data);
+  syncManager.enqueue("DailyClosingLog", closingRecord.id, "UPSERT", closingRecord);
+
+  return { closing_record: clone(closingRecord) };
+}
+
+const functions = { createSale, createPurchase, adjustStock, reconcileStockCount, recordCreditPayment, returnSale, saveDailyClosingLog };
 
 export const localStore = {
   entities: Object.fromEntries(entityNames.map((name) => [name, entity(name)])),
@@ -537,14 +611,44 @@ export const localStore = {
     }
   } },
   users: {
-    createAccount: async ({ full_name, username, password, role }) => {
+    createAccount: async ({ full_name, username, password, role, pin }) => {
       requireOwner();
       const cleanUsername = String(username || "").trim().toLowerCase();
       if (!full_name?.trim() || !cleanUsername || String(password).length < 6) throw new Error("Enter a name, username, and a password of at least 6 characters");
       const data = load();
       if (data.User.some((user) => user.username?.toLowerCase() === cleanUsername)) throw new Error("That username is already in use");
-      const user = { id: id(), created_date: now(), updated_date: now(), full_name: full_name.trim(), username: cleanUsername, role: role === "admin" ? "admin" : "user", status: "active", password_hash: passwordHash(password), must_change_password: false, password_reset_requested: false };
+      const cleanPin = pin ? String(pin).trim() : "";
+      if (cleanPin && !/^\d{4}$/.test(cleanPin)) throw new Error("PIN must be exactly 4 digits");
+      const user = {
+        id: id(),
+        created_date: now(),
+        updated_date: now(),
+        full_name: full_name.trim(),
+        username: cleanUsername,
+        role: role === "admin" ? "admin" : "user",
+        status: "active",
+        password_hash: passwordHash(password),
+        pin_hash: cleanPin ? passwordHash(cleanPin) : null,
+        must_change_password: false,
+        password_reset_requested: false,
+      };
       data.User.push(user);
+      save(data);
+      syncManager.enqueue("User", user.id, "UPSERT", user);
+      return clone(user);
+    },
+    setPin: async (userId, pin) => {
+      const cleanPin = String(pin || "").trim();
+      if (!/^\d{4}$/.test(cleanPin)) throw new Error("PIN must be exactly 4 digits (e.g. 1234)");
+      const current = currentUser();
+      if (!current || (current.role !== "admin" && current.id !== userId)) {
+        throw new Error("You do not have permission to change this PIN");
+      }
+      const data = load();
+      const user = data.User.find((item) => item.id === userId);
+      if (!user) throw new Error("Account not found");
+      user.pin_hash = passwordHash(cleanPin);
+      user.updated_date = now();
       save(data);
       syncManager.enqueue("User", user.id, "UPSERT", user);
       return clone(user);
@@ -592,6 +696,32 @@ export const localStore = {
       if (user.status === "inactive") throw new Error("This account no longer has access");
       sessionStorage.setItem(SESSION_KEY, user.id);
       return clone(user);
+    },
+    loginWithPin: async (userIdOrUsername, pin) => {
+      const cleanPin = String(pin || "").trim();
+      if (!/^\d{4}$/.test(cleanPin)) throw new Error("PIN must be exactly 4 digits");
+      const data = load();
+      const user = data.User.find((item) =>
+        item.id === userIdOrUsername || item.username?.toLowerCase() === String(userIdOrUsername).trim().toLowerCase()
+      );
+      if (!user) throw new Error("Account not found");
+      if (user.status === "inactive") throw new Error("This account no longer has access");
+      if (!user.pin_hash) throw new Error("No 4-digit PIN configured for this account. Please sign in with password first.");
+      if (user.pin_hash !== passwordHash(cleanPin)) throw new Error("Incorrect 4-digit PIN");
+      sessionStorage.setItem(SESSION_KEY, user.id);
+      return clone(user);
+    },
+    listActiveStaff: async () => {
+      const data = load();
+      return (data.User || [])
+        .filter((u) => u.status !== "inactive")
+        .map((u) => ({
+          id: u.id,
+          full_name: u.full_name,
+          username: u.username,
+          role: u.role,
+          has_pin: Boolean(u.pin_hash),
+        }));
     },
     logout: () => sessionStorage.removeItem(SESSION_KEY),
   },

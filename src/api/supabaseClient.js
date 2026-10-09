@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const CONFIG_STORAGE_KEY = "anb_supabase_config_v1";
 
-// Helper to read stored config or fallback to Vite environment variables
+// Helper to read stored config or fallback to Vite environment variables or URL parameters
 export function getStoredSupabaseConfig() {
   if (typeof window === "undefined") {
     return {
@@ -11,6 +11,38 @@ export function getStoredSupabaseConfig() {
     };
   }
 
+  // 1. Check if configuration was passed in URL query parameters (Magic Connect Link)
+  try {
+    if (window.location?.search) {
+      const params = new URLSearchParams(window.location.search);
+      const urlParam = params.get("sync_url") || params.get("supabase_url");
+      const keyParam = params.get("sync_key") || params.get("supabase_key");
+      if (urlParam && keyParam) {
+        const cleanUrl = urlParam.trim().replace(/\/+$/, "");
+        const cleanKey = keyParam.trim();
+        localStorage.setItem(
+          CONFIG_STORAGE_KEY,
+          JSON.stringify({ url: cleanUrl, anonKey: cleanKey })
+        );
+
+        // Clean the URL query parameters from browser address bar
+        if (window.history?.replaceState && window.location?.pathname) {
+          const cleanLocation = window.location.pathname + (window.location.hash || "");
+          window.history.replaceState({}, document.title, cleanLocation);
+        }
+
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("anb_supabase_config_changed"));
+        }, 100);
+
+        return { url: cleanUrl, anonKey: cleanKey };
+      }
+    }
+  } catch (e) {
+    console.warn("Could not parse URL sync parameters:", e);
+  }
+
+  // 2. Check local storage
   try {
     const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
     if (raw) {
@@ -23,6 +55,7 @@ export function getStoredSupabaseConfig() {
     console.warn("Failed to parse stored Supabase config:", e);
   }
 
+  // 3. Fallback to Vite environment variables
   return {
     url: (import.meta.env?.VITE_SUPABASE_URL || "").trim(),
     anonKey: (import.meta.env?.VITE_SUPABASE_ANON_KEY || "").trim(),
@@ -81,7 +114,17 @@ export function isSupabaseConfigured() {
 }
 
 /**
- * Tests connection to Supabase and verifies if `anb_sync_records` table exists.
+ * Returns a magic shareable link that automatically configures Supabase on another phone/laptop
+ */
+export function getMobileConnectLink() {
+  const { url, anonKey } = getStoredSupabaseConfig();
+  if (!url || !anonKey || typeof window === "undefined") return "";
+  const base = window.location.origin + window.location.pathname;
+  return `${base}?sync_url=${encodeURIComponent(url)}&sync_key=${encodeURIComponent(anonKey)}`;
+}
+
+/**
+ * Tests connection to Supabase and verifies if `anb_sync_records` table exists and counts rows.
  */
 export async function testSupabaseConnection() {
   const supabase = getSupabase();
@@ -93,10 +136,9 @@ export async function testSupabaseConnection() {
   }
 
   try {
-    const { error } = await supabase
+    const { count, error } = await supabase
       .from("anb_sync_records")
-      .select("entity", { count: "exact", head: true })
-      .limit(1);
+      .select("id", { count: "exact", head: true });
 
     if (error) {
       // Check if table missing
@@ -113,7 +155,7 @@ export async function testSupabaseConnection() {
       };
     }
 
-    return { success: true };
+    return { success: true, count: count ?? 0 };
   } catch (err) {
     return {
       success: false,
@@ -139,17 +181,13 @@ CREATE TABLE IF NOT EXISTS public.anb_sync_records (
 CREATE INDEX IF NOT EXISTS idx_anb_sync_records_entity_updated 
   ON public.anb_sync_records (entity, updated_date);
 
--- Enable Row Level Security (RLS)
-ALTER TABLE public.anb_sync_records ENABLE ROW LEVEL SECURITY;
+-- Disable Row Level Security (RLS) so that the shop and remote devices can sync with the public Anon Key
+ALTER TABLE public.anb_sync_records DISABLE ROW LEVEL SECURITY;
 
--- Allow anonymous access using project public anon key
-DROP POLICY IF EXISTS "Allow anon all on anb_sync_records" ON public.anb_sync_records;
-CREATE POLICY "Allow anon all on anb_sync_records" 
-  ON public.anb_sync_records 
-  FOR ALL 
-  TO anon 
-  USING (true) 
-  WITH CHECK (true);
+-- Grant table access to anon and authenticated roles
+GRANT ALL ON TABLE public.anb_sync_records TO anon;
+GRANT ALL ON TABLE public.anb_sync_records TO authenticated;
+GRANT ALL ON TABLE public.anb_sync_records TO service_role;
 
 -- Enable Supabase Realtime for instant multi-device live sync
 DO $$
@@ -161,7 +199,6 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.anb_sync_records;
   END IF;
 EXCEPTION WHEN OTHERS THEN
-  -- Realtime publication might vary depending on project tier, ignore if already enabled
   NULL;
 END $$;
 `;

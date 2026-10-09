@@ -19,9 +19,11 @@ export default function Team() {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState([]);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [account, setAccount] = useState({ full_name: "", username: "", password: "", role: "user" });
+  const [account, setAccount] = useState({ full_name: "", username: "", password: "", role: "user", pin: "" });
   const [resetUser, setResetUser] = useState(null);
   const [newPassword, setNewPassword] = useState("");
+  const [pinUser, setPinUser] = useState(null);
+  const [newPin, setNewPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmId, setConfirmId] = useState(null);
   const isOwner = user?.role === "admin";
@@ -35,12 +37,29 @@ export default function Team() {
     setBusy(true);
     try {
       await localStore.users.createAccount(account);
-      toast({ title: "Employee account created", description: `${account.username} can now sign in with the password you set.` });
+      toast({ title: "Employee account created", description: `${account.username} can now sign in with the password or PIN you set.` });
       setAccountOpen(false);
-      setAccount({ full_name: "", username: "", password: "", role: "user" });
+      setAccount({ full_name: "", username: "", password: "", role: "user", pin: "" });
       refresh();
     } catch (error) {
       toast({ title: "Could not create account", description: error.message, variant: "destructive" });
+    } finally { setBusy(false); }
+  };
+
+  const setPin = async () => {
+    if (!/^\d{4}$/.test(newPin.trim())) {
+      toast({ title: "PIN must be 4 digits", description: "Enter 4 numeric digits (e.g. 1234)", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      await localStore.users.setPin(pinUser.id, newPin.trim());
+      toast({ title: "4-Digit PIN updated", description: `${pinUser.full_name} can now sign in using PIN ${newPin.trim()}.` });
+      setPinUser(null);
+      setNewPin("");
+      refresh();
+    } catch (error) {
+      toast({ title: "Could not set PIN", description: error.message, variant: "destructive" });
     } finally { setBusy(false); }
   };
 
@@ -95,19 +114,32 @@ export default function Team() {
 
       <section className="bg-white rounded-lg p-5">
         {users.map((target) => <div key={target.id} className="flex flex-wrap items-center justify-between gap-3 py-3 border-b border-neutral-100 last:border-0">
-          <div className="min-w-0"><p className="text-sm font-medium text-[#111111]">{target.full_name}</p><p className="text-xs text-neutral-400">@{target.username} {target.created_date ? `· joined ${formatDateTime(target.created_date)}` : ""}</p></div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-[#111111]">{target.full_name}</p>
+            <p className="text-xs text-neutral-400">@{target.username} {target.created_date ? `· joined ${formatDateTime(target.created_date)}` : ""}</p>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs px-3 py-1.5 rounded-full font-medium" style={target.status === "inactive" ? { background: "#e5e5e5", color: "#666" } : roleStyle(target.role)}>{target.status === "inactive" ? "Access removed" : `${target.id === user.id ? "You · " : ""}${roleLabel(target.role)}`}</span>
+            <span className={`text-xs px-2.5 py-1 rounded-full font-mono font-medium ${target.pin_hash ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-neutral-100 text-neutral-400"}`}>
+              {target.pin_hash ? "PIN: Set (••••)" : "No PIN"}
+            </span>
             {target.password_reset_requested && <span className="text-xs text-[#b56800]">Reset requested</span>}
-            <button onClick={() => setResetUser(target)} className="h-9 px-3 rounded-md border border-neutral-200 bg-white text-xs flex items-center gap-1.5"><KeyRound size={14} /> {target.id === user.id ? "Change password" : "Set password"}</button>
+            <button onClick={() => { setPinUser(target); setNewPin(""); }} className="h-9 px-3 rounded-md border border-neutral-200 bg-white text-xs flex items-center gap-1.5 hover:bg-neutral-50">
+              <KeyRound size={14} className="text-[#ff9000]" /> {target.pin_hash ? "Change PIN" : "Set 4-digit PIN"}
+            </button>
+            <button onClick={() => setResetUser(target)} className="h-9 px-3 rounded-md border border-neutral-200 bg-white text-xs flex items-center gap-1.5 hover:bg-neutral-50">
+              <KeyRound size={14} /> {target.id === user.id ? "Change password" : "Set password"}
+            </button>
             {target.id !== user.id && target.status !== "inactive" && <><select value={target.role} disabled={busy} onChange={(event) => changeRole(target, event.target.value)} className="h-9 rounded-md text-xs px-2 border border-neutral-200 bg-white">{ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}</select><button disabled={busy} onClick={() => confirmId === target.id ? removeUser(target) : setConfirmId(target.id)} className="h-9 px-3 rounded-md bg-[#fdeae6] text-[#b54635] text-xs flex items-center gap-1.5 border-0">{confirmId === target.id ? "Confirm removal" : <><UserX size={14} /> Remove</>}</button></>}
           </div>
         </div>)}
       </section>
 
-      {accountOpen && <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setAccountOpen(false)}><div className="bg-white rounded-lg p-6 w-full max-w-sm" onClick={(event) => event.stopPropagation()}><h2 className="text-base font-medium text-[#111111]">Create employee account</h2><div className="mt-4 space-y-3"><input value={account.full_name} onChange={(event) => setAccount({ ...account, full_name: event.target.value })} placeholder="Employee full name" className={inputClass} /><input value={account.username} onChange={(event) => setAccount({ ...account, username: event.target.value })} placeholder="Username" autoComplete="off" className={inputClass} /><input type="password" value={account.password} onChange={(event) => setAccount({ ...account, password: event.target.value })} placeholder="Temporary password (6+ characters)" autoComplete="new-password" className={inputClass} /><select value={account.role} onChange={(event) => setAccount({ ...account, role: event.target.value })} className={inputClass}>{ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}</select></div><div className="flex gap-2 mt-5"><button onClick={() => setAccountOpen(false)} className="flex-1 h-11 rounded-md bg-neutral-100 text-sm border-0">Cancel</button><button disabled={busy} onClick={createAccount} className="flex-1 h-11 rounded-md bg-[#ff9000] text-sm font-medium border-0 disabled:opacity-50">Create account</button></div></div></div>}
+      {accountOpen && <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setAccountOpen(false)}><div className="bg-white rounded-lg p-6 w-full max-w-sm" onClick={(event) => event.stopPropagation()}><h2 className="text-base font-medium text-[#111111]">Create employee account</h2><div className="mt-4 space-y-3"><input value={account.full_name} onChange={(event) => setAccount({ ...account, full_name: event.target.value })} placeholder="Employee full name" className={inputClass} /><input value={account.username} onChange={(event) => setAccount({ ...account, username: event.target.value })} placeholder="Username" autoComplete="off" className={inputClass} /><input type="password" value={account.password} onChange={(event) => setAccount({ ...account, password: event.target.value })} placeholder="Temporary password (6+ characters)" autoComplete="new-password" className={inputClass} /><input type="text" inputMode="numeric" maxLength={4} value={account.pin} onChange={(event) => setAccount({ ...account, pin: event.target.value.replace(/\D/g, '') })} placeholder="4-digit Cashier PIN (optional, e.g. 1234)" className={inputClass} /><select value={account.role} onChange={(event) => setAccount({ ...account, role: event.target.value })} className={inputClass}>{ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}</select></div><div className="flex gap-2 mt-5"><button onClick={() => setAccountOpen(false)} className="flex-1 h-11 rounded-md bg-neutral-100 text-sm border-0">Cancel</button><button disabled={busy} onClick={createAccount} className="flex-1 h-11 rounded-md bg-[#ff9000] text-sm font-medium border-0 disabled:opacity-50">Create account</button></div></div></div>}
 
       {resetUser && <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setResetUser(null)}><div className="bg-white rounded-lg p-6 w-full max-w-sm" onClick={(event) => event.stopPropagation()}><h2 className="text-base font-medium text-[#111111]">Set password</h2><p className="text-sm text-neutral-500 mt-1">Set a new password for {resetUser.full_name}.</p><input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="New password (6+ characters)" autoComplete="new-password" className={inputClass + " mt-4"} /><div className="flex gap-2 mt-5"><button onClick={() => setResetUser(null)} className="flex-1 h-11 rounded-md bg-neutral-100 text-sm border-0">Cancel</button><button disabled={busy || newPassword.length < 6} onClick={setPassword} className="flex-1 h-11 rounded-md bg-[#111111] text-white text-sm border-0 disabled:opacity-50">Approve password</button></div></div></div>}
+
+      {pinUser && <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setPinUser(null)}><div className="bg-white rounded-lg p-6 w-full max-w-sm" onClick={(event) => event.stopPropagation()}><h2 className="text-base font-medium text-[#111111]">Set 4-digit Cashier PIN</h2><p className="text-sm text-neutral-500 mt-1">Set a fast sign-in PIN for {pinUser.full_name}.</p><input type="password" inputMode="numeric" maxLength={4} value={newPin} onChange={(event) => setNewPin(event.target.value.replace(/\D/g, ''))} placeholder="4-digit PIN (e.g. 1234)" autoFocus className={inputClass + " mt-4 text-center text-xl tracking-[0.4em] font-mono"} /><p className="text-xs text-neutral-400 mt-1.5 text-center">Cashiers can type this 4-digit PIN at the login screen for instant sign-in.</p><div className="flex gap-2 mt-5"><button onClick={() => setPinUser(null)} className="flex-1 h-11 rounded-md bg-neutral-100 text-sm border-0">Cancel</button><button disabled={busy || newPin.length !== 4} onClick={setPin} className="flex-1 h-11 rounded-md bg-[#ff9000] text-[#111111] text-sm font-medium border-0 disabled:opacity-50">Save PIN</button></div></div></div>}
     </div>
   );
 }

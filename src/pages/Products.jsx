@@ -39,10 +39,17 @@ export default function Products() {
   }, [products, query, category]);
 
   const addCategory = async () => {
-    if (!newCat.trim()) return;
+    const trimmed = newCat.trim();
+    if (!trimmed) return;
+    // Prevent duplicates
+    if (categories.some((c) => c.name.toLowerCase() === trimmed.toLowerCase())) {
+      toast({ title: "Category already exists", description: `"${trimmed}" is already in your list.`, variant: "destructive" });
+      return;
+    }
     try {
-      await localStore.entities.Category.create({ name: newCat.trim() });
+      await localStore.entities.Category.create({ name: trimmed, status: "active" });
       setNewCat("");
+      toast({ title: "Category added!", description: `"${trimmed}" is now available when creating products.` });
       refresh();
     } catch (err) {
       toast({ title: "Could not add category", description: err.message, variant: "destructive" });
@@ -132,7 +139,9 @@ export default function Products() {
               {categories.length === 0 && <p className="text-xs text-neutral-400">No categories yet.</p>}
             </div>
             <div className="flex gap-2">
-              <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="New category name"
+              <input value={newCat} onChange={(e) => setNewCat(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addCategory()}
+                placeholder="New category name"
                 className="flex-1 h-11 rounded-xl border border-neutral-200 px-3 text-sm focus:outline-none focus:border-[#FF9000]" />
               <button onClick={addCategory} className="h-11 px-4 rounded-xl bg-[#111111] text-white text-sm cursor-pointer border-none">Add</button>
             </div>

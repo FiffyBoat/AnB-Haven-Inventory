@@ -1,25 +1,37 @@
+import { useEffect } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { formatGhs, formatDateTime } from "@/lib/format";
 import { Printer, Undo2, X } from "lucide-react";
 import { printDocument } from "@/lib/print";
 
-export default function ReceiptModal({ open, onClose, sale, onReturn }) {
+export default function ReceiptModal({ open, onClose, sale, onReturn, autoPrint = false }) {
   if (!sale) return null;
   const credit = (sale.credit_amount || 0) > 0;
+
+  // Optional auto-print trigger once modal opens
+  useEffect(() => {
+    if (open && autoPrint) {
+      const timer = setTimeout(() => {
+        printDocument("receipt");
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [open, autoPrint]);
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-md p-0 bg-transparent border-0 shadow-none">
         <div className="receipt-print bg-white rounded-3xl overflow-hidden">
           <div className="px-6 pt-6 pb-4 text-center border-b border-dashed border-neutral-300">
-            <p className="font-semibold text-lg text-[#111111]">A N B HAVEN VENTURES</p>
-            <p className="text-xs text-neutral-500 mt-1">Electronics · Phone &amp; Accessories</p>
-            <p className="text-xs text-neutral-500">Accra, Ghana</p>
+            <p className="font-bold text-lg text-[#111111] uppercase tracking-wide">DANNY&apos;S HEAVEN VENTURES</p>
+            <p className="text-xs text-neutral-600 mt-1">Retail &amp; Wholesale · Phones, Laptops &amp; Accessories</p>
+            <p className="text-xs text-neutral-500 mt-0.5">Takoradi - Acalema, Ghana · GPS: GA-183-4921</p>
+            <p className="text-xs text-neutral-600 font-medium mt-0.5">Contact: +233 59 239 0609</p>
           </div>
           <div className="px-6 py-3 text-xs text-neutral-600 space-y-1 border-b border-dashed border-neutral-300">
             <div className="flex justify-between"><span>Receipt</span><span className="font-medium text-[#111111]">{sale.sale_number}</span></div>
             <div className="flex justify-between"><span>Date</span><span>{formatDateTime(sale.created_date)}</span></div>
-            <div className="flex justify-between"><span>Cashier</span><span>{sale.cashier_name}</span></div>
+            <div className="flex justify-between"><span>Served by</span><span className="font-semibold text-[#111111]">{sale.cashier_name || "Cashier"}</span></div>
             <div className="flex justify-between"><span>Customer</span><span>{sale.customer_name || "Walk-in Customer"}</span></div>
           </div>
           <div className="px-6 py-3 border-b border-dashed border-neutral-300">

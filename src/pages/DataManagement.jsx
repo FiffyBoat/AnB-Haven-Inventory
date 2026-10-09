@@ -16,6 +16,7 @@ import {
   Wifi,
   WifiOff,
   Code2,
+  Share2,
 } from "lucide-react";
 import { localStore } from "@/api/localStore";
 import { useAuth } from "@/lib/AuthContext";
@@ -25,6 +26,7 @@ import {
   saveSupabaseConfig,
   clearSupabaseConfig,
   testSupabaseConnection,
+  getMobileConnectLink,
   SUPABASE_SQL_SETUP_SCRIPT,
 } from "@/api/supabaseClient";
 import { syncManager } from "@/api/syncManager";
@@ -47,6 +49,26 @@ export default function DataManagement() {
   const [showSql, setShowSql] = useState(false);
   const [isPushingAll, setIsPushingAll] = useState(false);
   const [isPullingAll, setIsPullingAll] = useState(false);
+  const [copiedConnectLink, setCopiedConnectLink] = useState(false);
+
+  const handleCopyConnectLink = () => {
+    const link = getMobileConnectLink();
+    if (!link) {
+      toast({
+        title: "Cloud not configured",
+        description: "Save your Supabase settings first before creating a connection link.",
+        variant: "destructive",
+      });
+      return;
+    }
+    navigator.clipboard.writeText(link);
+    setCopiedConnectLink(true);
+    toast({
+      title: "Magic Connect Link Copied! 📱",
+      description: "Send this link via WhatsApp or email to your phone. Tapping it will auto-connect cloud sync and pull all records instantly!",
+    });
+    setTimeout(() => setCopiedConnectLink(false), 4000);
+  };
 
   useEffect(() => {
     const config = getStoredSupabaseConfig();
@@ -323,6 +345,33 @@ export default function DataManagement() {
           </div>
         </div>
       </section>
+
+      {/* 1-Click Multi-Device Connect Link */}
+      {isConfigured && (
+        <section className="bg-white rounded-3xl p-6 border-2 border-orange-200/60 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-orange-100/80 text-[#FF9000] flex items-center justify-center shrink-0 mt-0.5">
+              <Share2 size={20} />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-[#111111]">
+                Connect Your Phone or Laptop (1-Click Link)
+              </h3>
+              <p className="text-xs text-neutral-500 mt-1 max-w-xl leading-relaxed">
+                Send this magic link to your smartphone via WhatsApp, SMS, or email. Opening it on your phone connects automatically to the cloud and loads all products, live sales, and activity without typing any keys!
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleCopyConnectLink}
+            className="h-11 px-5 rounded-full bg-[#111111] hover:bg-neutral-800 text-white font-medium text-xs flex items-center gap-2 shrink-0 transition-all shadow-sm cursor-pointer"
+          >
+            {copiedConnectLink ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+            {copiedConnectLink ? "Link Copied!" : "Copy Magic Connect Link"}
+          </button>
+        </section>
+      )}
 
       {/* Supabase Cloud Connection Settings */}
       <section className="bg-white rounded-3xl p-6 border border-neutral-100 shadow-sm flex flex-col gap-5">

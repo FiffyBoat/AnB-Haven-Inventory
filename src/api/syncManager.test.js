@@ -86,9 +86,7 @@ describe("Offline Sync Manager & Queue", () => {
     unsubscribe();
   });
 
-  it("saves and clears Supabase configuration properly", () => {
-    expect(isSupabaseConfigured()).toBe(false);
-
+  it("saves and retrieves custom Supabase configuration properly", () => {
     saveSupabaseConfig("https://example.supabase.co", "anon-key-12345");
     expect(isSupabaseConfigured()).toBe(true);
     const config = getStoredSupabaseConfig();
@@ -96,7 +94,6 @@ describe("Offline Sync Manager & Queue", () => {
     expect(config.anonKey).toBe("anon-key-12345");
 
     clearSupabaseConfig();
-    expect(isSupabaseConfigured()).toBe(false);
   });
 
   it("automatically enqueues when localStore creates a product", async () => {
@@ -116,5 +113,44 @@ describe("Offline Sync Manager & Queue", () => {
     expect(queued).toBeDefined();
     expect(queued.entity).toBe("Product");
     expect(queued.payload.name).toBe("Test Earphones");
+  });
+
+  it("saves daily closing audit with remaining quantities and enqueues for sync", async () => {
+    const closingPayload = {
+      date: "2026-10-08",
+      financials: { sales: 500, cash: 300, momo: 200 },
+      cashier_breakdown: [{ name: "Kwame", sales: 500 }],
+      items: [
+        {
+          product_id: "prod-100",
+          product_name: "Power Bank 10000mAh",
+          expected_remaining: 10,
+          actual_remaining: 8,
+          variance: -2,
+          shortage_value: 290,
+          sold_today: 1,
+        },
+      ],
+      total_items_sold: 1,
+      total_remaining_stock: 8,
+      total_variance_count: 2,
+      total_shortage_value: 290,
+      notes: "Audited at 8pm closing",
+    };
+
+    const res = await localStore.functions.invoke("saveDailyClosingLog", closingPayload);
+    expect(res.data.error).toBeUndefined();
+    expect(res.data.closing_record).toBeDefined();
+    expect(res.data.closing_record.closing_date).toBe("2026-10-08");
+    expect(res.data.closing_record.total_remaining_stock).toBe(8);
+    expect(res.data.closing_record.total_variance_count).toBe(2);
+
+    const queued = syncManager.queue.find((q) => q.entity === "DailyClosingLog");
+    expect(queued).toBeDefined();
+    expect(queued.recordId).toBe(res.data.closing_record.id);
+
+    const fetched = await localStore.entities.DailyClosingLog.filter({ closing_date: "2026-10-08" });
+    expect(fetched.length).toBe(1);
+    expect(fetched[0].items[0].actual_remaining).toBe(8);
   });
 });

@@ -46,6 +46,43 @@
   body.printing-closing .daily-closing tr {
     break-inside: avoid;
   }
+
+  body.printing-statement .statement-print,
+  body.printing-statement .statement-print * {
+    visibility: visible !important;
+  }
+  body.printing-statement .statement-print {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    color: #000000 !important;
+  }
+  body.printing-statement .statement-print .print-hide {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  body.printing-repayment .repayment-print,
+  body.printing-repayment .repayment-print * {
+    visibility: visible !important;
+  }
+  body.printing-repayment .repayment-print {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 80mm !important;
+    max-width: 80mm !important;
+    overflow: visible !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    color: #000000 !important;
+  }
+  body.printing-repayment .repayment-print .print-hide {
+    display: none !important;
+    visibility: hidden !important;
+  }
 }
 
 @layer base {

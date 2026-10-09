@@ -5,8 +5,10 @@ import { formatGhs, clientTxId } from "@/lib/format";
 import PaymentModal from "@/components/pos/PaymentModal";
 import UnitPicker from "@/components/pos/UnitPicker";
 import ReceiptModal from "@/components/ReceiptModal";
+import SaleReturnDialog from "@/components/SaleReturnDialog";
+import CameraScannerModal from "@/components/pos/CameraScannerModal";
 import ProductGrid from "@/components/pos/ProductGrid";
-import { Search, Trash2, Plus, Minus, UserPlus, X, ShoppingCart, ArrowLeftRight } from "lucide-react";
+import { Search, Trash2, Plus, Minus, UserPlus, X, ShoppingCart, ArrowLeftRight, Camera, Undo2 } from "lucide-react";
 
 export default function POS() {
   const { toast } = useToast();
@@ -24,7 +26,54 @@ export default function POS() {
   const [submitting, setSubmitting] = useState(false);
   const [receiptSale, setReceiptSale] = useState(null);
   const [newCust, setNewCust] = useState({ open: false, name: "", phone: "" });
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [returnLookupOpen, setReturnLookupOpen] = useState(false);
+  const [returnReceiptQuery, setReturnReceiptQuery] = useState("");
+  const [returnSale, setReturnSale] = useState(null);
+  const [returning, setReturning] = useState(false);
+  const [autoPrintReceipt, setAutoPrintReceipt] = useState(() => {
+    return localStorage.getItem("dhv_auto_print") === "true";
+  });
   const searchRef = useRef(null);
+
+  const lookupSaleForReturn = async (saleNum) => {
+    const term = (saleNum || returnReceiptQuery).trim().toLowerCase();
+    if (!term) return;
+    try {
+      const allSales = await localStore.entities.Sale.list("-created_date", 200);
+      const found = allSales.find(
+        (s) => s.sale_number?.toLowerCase() === term || s.id === term
+      );
+      if (!found) {
+        toast({ title: "Sale not found", description: `No sale found matching "${term}"`, variant: "destructive" });
+        return;
+      }
+      if (found.status !== "COMPLETED") {
+        toast({ title: "Sale not eligible", description: `Sale status is ${found.status}`, variant: "destructive" });
+        return;
+      }
+      setReturnSale(found);
+      setReturnLookupOpen(false);
+      setReturnReceiptQuery("");
+    } catch (err) {
+      toast({ title: "Lookup failed", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const approveReturn = async (payload) => {
+    setReturning(true);
+    try {
+      const result = await localStore.functions.invoke("returnSale", payload);
+      if (result.data?.error) throw new Error(result.data.error);
+      setReturnSale(null);
+      refresh();
+      toast({ title: "Return recorded", description: "The items have been returned to inventory." });
+    } catch (error) {
+      toast({ title: "Return failed", description: error.message, variant: "destructive" });
+    } finally {
+      setReturning(false);
+    }
+  };
 
   const refresh = () => {
     Promise.all([localStore.entities.Product.list(), localStore.entities.Customer.list()])
@@ -290,22 +339,42 @@ export default function POS() {
       {/* Left: search + product results */}
       <div className="flex flex-col gap-4">
         <div className="bg-white rounded-3xl p-4">
-          <div className="flex items-center gap-3 rounded-full bg-neutral-100 px-4 h-13 py-3.5">
-            <Search size={18} className="text-neutral-400 shrink-0" />
-            <input
-              ref={searchRef}
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={onSearchKey}
-              placeholder="Scan barcode or search product / SKU…"
-              className="w-full bg-transparent text-sm focus:outline-none border-none"
-            />
-            {query && (
-              <button onClick={() => setQuery("")} className="text-neutral-400 hover:text-[#111111] cursor-pointer border-none bg-transparent">
-                <X size={15} />
-              </button>
-            )}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 flex items-center gap-3 rounded-full bg-neutral-100 px-4 h-13 py-3.5">
+              <Search size={18} className="text-neutral-400 shrink-0" />
+              <input
+                ref={searchRef}
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={onSearchKey}
+                placeholder="Scan barcode or search product / SKU…"
+                className="w-full bg-transparent text-sm focus:outline-none border-none"
+              />
+              {query && (
+                <button onClick={() => setQuery("")} className="text-neutral-400 hover:text-[#111111] cursor-pointer border-none bg-transparent">
+                  <X size={15} />
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setCameraOpen(true)}
+              className="h-13 px-4 rounded-full bg-white border border-neutral-200 text-neutral-700 hover:text-[#111111] hover:border-[#FF9000] flex items-center gap-2 text-xs font-semibold cursor-pointer shadow-sm transition-colors shrink-0"
+              title="Scan Barcode / IMEI with Camera"
+            >
+              <Camera size={16} className="text-[#FF9000]" />
+              <span className="hidden sm:inline">Camera</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setReturnLookupOpen(true)}
+              className="h-13 px-4 rounded-full bg-white border border-neutral-200 text-neutral-700 hover:text-[#111111] hover:border-[#FF9000] flex items-center gap-1.5 text-xs font-semibold cursor-pointer shadow-sm transition-colors shrink-0"
+              title="Process a Return / Refund"
+            >
+              <Undo2 size={15} />
+              <span className="hidden sm:inline">Returns</span>
+            </button>
           </div>
           {query && results.length > 0 && (
             <div className="mt-3 rounded-2xl border border-neutral-100 overflow-hidden">
@@ -495,6 +564,20 @@ export default function POS() {
           >
             Checkout · {formatGhs(total)}
           </button>
+
+          <label className="flex items-center justify-center gap-2 mt-3 cursor-pointer select-none text-xs text-neutral-500 hover:text-neutral-700">
+            <input
+              type="checkbox"
+              checked={autoPrintReceipt}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setAutoPrintReceipt(next);
+                localStorage.setItem("dhv_auto_print", String(next));
+              }}
+              className="accent-[#111111] rounded cursor-pointer"
+            />
+            <span>Auto-print receipt after sale</span>
+          </label>
         </div>
       </div>
 
@@ -535,7 +618,90 @@ export default function POS() {
         submitting={submitting}
         onConfirm={completeSale}
       />
-      <ReceiptModal open={!!receiptSale} sale={receiptSale} onClose={() => setReceiptSale(null)} />
+      <ReceiptModal
+        open={!!receiptSale}
+        sale={receiptSale}
+        autoPrint={autoPrintReceipt}
+        onClose={() => setReceiptSale(null)}
+        onReturn={() => setReturnSale(receiptSale)}
+      />
+
+      {/* Camera Barcode / IMEI / QR Scanner */}
+      <CameraScannerModal
+        open={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onScan={async (code) => {
+          await processScannedCode(code);
+        }}
+      />
+
+      {/* Lookup Sale for Return Modal */}
+      {returnLookupOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          onClick={() => setReturnLookupOpen(false)}
+        >
+          <div
+            className="bg-white rounded-3xl p-6 w-full max-w-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-3">
+              <p className="text-base font-semibold text-[#111111] flex items-center gap-2">
+                <Undo2 size={16} className="text-[#FF9000]" /> Return Sale
+              </p>
+              <button
+                onClick={() => setReturnLookupOpen(false)}
+                className="text-neutral-400 hover:text-[#111111] border-none bg-transparent cursor-pointer p-1"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-xs text-neutral-500 mb-3">
+              Enter or scan the receipt / sale number from the customer's receipt slip.
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                lookupSaleForReturn();
+              }}
+              className="space-y-3"
+            >
+              <input
+                autoFocus
+                value={returnReceiptQuery}
+                onChange={(e) => setReturnReceiptQuery(e.target.value)}
+                placeholder="e.g. ANB-SALE-1729..."
+                className="w-full h-11 rounded-xl border border-neutral-200 px-3 text-sm focus:outline-none focus:border-[#FF9000]"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setReturnLookupOpen(false)}
+                  className="flex-1 h-11 rounded-full border border-neutral-200 text-xs font-medium cursor-pointer bg-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!returnReceiptQuery.trim()}
+                  className="flex-1 h-11 rounded-full bg-[#111111] text-white text-xs font-semibold cursor-pointer border-none disabled:opacity-40 hover:bg-neutral-800 transition-colors"
+                >
+                  Find Sale
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Sale Return Dialog */}
+      <SaleReturnDialog
+        open={!!returnSale}
+        sale={returnSale}
+        onClose={() => setReturnSale(null)}
+        onConfirm={approveReturn}
+        submitting={returning}
+      />
 
       {/* Quick new-customer popover */}
       {newCust.open && (

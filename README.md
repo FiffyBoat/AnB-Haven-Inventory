@@ -1,6 +1,6 @@
-# A N B Haven Ventures Inventory & POS
+# Danny's Heaven Ventures Inventory & POS
 
-A fast, reliable inventory and point-of-sale application built for A N B Haven Ventures (electronics, smartphones, and accessories retail).
+A fast, reliable inventory and point-of-sale application built for Danny's Heaven Ventures (electronics, smartphones, and accessories retail in Takoradi - Acalema, Ghana).
 
 ## Quick Start
 

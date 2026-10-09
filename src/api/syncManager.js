@@ -214,6 +214,33 @@ class SyncManager {
     this.notifyListeners();
 
     try {
+      // Check if this device needs a complete initial download:
+      // (e.g. fresh device, no LAST_PULLED_KEY, or local database has no sales while cloud has records)
+      const lastPulled = typeof localStorage !== "undefined" ? localStorage.getItem(LAST_PULLED_KEY) : null;
+      const localData = this.getAllLocalDataCallback ? this.getAllLocalDataCallback() : null;
+      const localHasNoSales = !localData || !localData.Sale || localData.Sale.length === 0;
+
+      if (!lastPulled || localHasNoSales) {
+        const { count, error } = await supabase
+          .from("anb_sync_records")
+          .select("id", { count: "exact", head: true });
+
+        if (!error) {
+          if (count > 0) {
+            // Cloud has records! Ensure this device downloads everything
+            await this.downloadAllCloudData();
+            if (this.queue.length > 0) {
+              await this.pushQueue(supabase);
+            }
+            return;
+          } else if (count === 0 && !this.lastSyncTime) {
+            // Cloud table is empty! Upload local store so Supabase gets populated
+            await this.uploadAllLocalDataToCloud();
+            return;
+          }
+        }
+      }
+
       // 1. Push pending local queue mutations to cloud
       await this.pushQueue(supabase);
 
@@ -368,6 +395,14 @@ class SyncManager {
         localStorage.setItem(LAST_PULLED_KEY, this.lastSyncTime);
       }
 
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("anb_data_synced", {
+            detail: { count: records.length },
+          })
+        );
+      }
+
       return { totalUploaded: records.length };
     } finally {
       this.isSyncing = false;
@@ -376,7 +411,7 @@ class SyncManager {
   }
 
   /**
-   * One-time download of all cloud data down to local database
+   * Download all cloud data down to local database
    */
   async downloadAllCloudData() {
     const supabase = getSupabase();
@@ -387,17 +422,31 @@ class SyncManager {
     this.notifyListeners();
 
     try {
-      const { data: remoteRecords, error } = await supabase
-        .from("anb_sync_records")
-        .select("entity, id, data, updated_date, deleted")
-        .order("updated_date", { ascending: true });
+      let allRecords = [];
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
 
-      if (error) throw new Error(`Download error: ${error.message}`);
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("anb_sync_records")
+          .select("entity, id, data, updated_date, deleted")
+          .range(from, from + pageSize - 1);
 
-      if (remoteRecords && remoteRecords.length > 0) {
-        this.applyRemoteSyncCallback(remoteRecords);
+        if (error) throw new Error(`Download error: ${error.message}`);
+        if (data && data.length > 0) {
+          allRecords.push(...data);
+          from += data.length;
+          hasMore = data.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
 
-        const maxUpdated = remoteRecords.reduce((max, r) => {
+      if (allRecords.length > 0) {
+        this.applyRemoteSyncCallback(allRecords);
+
+        const maxUpdated = allRecords.reduce((max, r) => {
           return !max || new Date(r.updated_date) > new Date(max)
             ? r.updated_date
             : max;
@@ -410,7 +459,7 @@ class SyncManager {
         if (typeof window !== "undefined") {
           window.dispatchEvent(
             new CustomEvent("anb_data_synced", {
-              detail: { count: remoteRecords.length },
+              detail: { count: allRecords.length },
             })
           );
         }
@@ -421,7 +470,7 @@ class SyncManager {
         localStorage.setItem("anb-last-sync-time", this.lastSyncTime);
       }
 
-      return { totalDownloaded: remoteRecords?.length || 0 };
+      return { totalDownloaded: allRecords.length };
     } finally {
       this.isSyncing = false;
       this.notifyListeners();

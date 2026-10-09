@@ -31,6 +31,7 @@ export default function Dashboard() {
   const [products, setProducts] = useState([]);
   const [sales, setSales] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [period, setPeriod] = useState("today"); // 'today' | 'week' | 'month' | 'all'
 
   useEffect(() => {
     const fetchData = () => {
@@ -70,27 +71,46 @@ export default function Dashboard() {
   }
 
   const active = products.filter((p) => p.status === "active");
-  const todaySales = sales.filter((s) => s.status === "COMPLETED" && isToday(s.created_date));
-  const revenue = todaySales.reduce((sum, s) => sum + (s.total || 0), 0);
-  const itemsSold = todaySales.reduce(
+  const periodSales = sales.filter((s) => {
+    if (s.status !== "COMPLETED") return false;
+    if (period === "all") return true;
+    const time = new Date(s.created_date).getTime();
+    const now = Date.now();
+    if (period === "today") return isToday(s.created_date);
+    if (period === "week") return now - time <= 7 * 86400000;
+    if (period === "month") return now - time <= 30 * 86400000;
+    return true;
+  });
+
+  const periodLabel =
+    period === "today"
+      ? "Today's"
+      : period === "week"
+      ? "7-Day"
+      : period === "month"
+      ? "30-Day"
+      : "All-Time";
+
+  const revenue = periodSales.reduce((sum, s) => sum + (s.total || 0), 0);
+  const itemsSold = periodSales.reduce(
     (sum, s) => sum + (s.items || []).reduce((a, i) => a + (i.quantity || 0), 0),
     0
   );
-  const grossProfit = todaySales.reduce(
+  const grossProfit = periodSales.reduce(
     (sum, s) =>
       sum + (s.items || []).reduce((a, i) => a + ((i.total || 0) - (i.unit_cost || 0) * (i.quantity || 0)), 0),
     0
   );
   const marginPct = revenue > 0 ? ((grossProfit / revenue) * 100).toFixed(1) : "0.0";
-  const cashTotal = todaySales.reduce(
+  const cashTotal = periodSales.reduce(
     (sum, s) => sum + (s.payments || []).filter((p) => p.method === "CASH").reduce((a, p) => a + (p.amount || 0), 0),
     0
   );
-  const momoTotal = todaySales.reduce(
+  const momoTotal = periodSales.reduce(
     (sum, s) => sum + (s.payments || []).filter((p) => p.method === "MOBILE_MONEY").reduce((a, p) => a + (p.amount || 0), 0),
     0
   );
-  const creditTotal = todaySales.reduce((sum, s) => sum + (s.credit_amount || 0), 0);
+  const creditTotal = periodSales.reduce((sum, s) => sum + (s.credit_amount || 0), 0);
 
   const lowStock = active.filter((p) => (p.current_stock || 0) > 0 && (p.current_stock || 0) <= (p.reorder_level || 0));
   const outOfStock = active.filter((p) => (p.current_stock || 0) === 0);
@@ -103,7 +123,7 @@ export default function Dashboard() {
     .sort((a, b) => (b.current_balance || 0) - (a.current_balance || 0));
 
   const byCashier = Object.values(
-    todaySales.reduce((acc, s) => {
+    periodSales.reduce((acc, s) => {
       const k = s.cashier_name || "Staff";
       acc[k] = acc[k] || { name: k, total: 0, count: 0 };
       acc[k].total += s.total || 0;
@@ -127,7 +147,7 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="font-heading font-light text-[#111111] text-2xl sm:text-3xl tracking-tight">
-            Haven Ventures Overview
+            Danny&apos;s Heaven Ventures Overview
           </h1>
           <div className="flex items-center gap-2 text-xs sm:text-sm text-neutral-500 mt-1">
             <Calendar size={14} className="text-neutral-400" />
@@ -154,15 +174,73 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Time Range Pills & Stock Alerts */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-1 p-1 bg-white rounded-full border border-neutral-200 shadow-sm">
+          {[
+            { key: "today", label: "Today" },
+            { key: "week", label: "Last 7 Days" },
+            { key: "month", label: "Last 30 Days" },
+            { key: "all", label: "All Time" },
+          ].map((p) => (
+            <button
+              key={p.key}
+              onClick={() => setPeriod(p.key)}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold cursor-pointer border-none transition-all ${
+                period === p.key
+                  ? "bg-[#111111] text-white shadow-sm"
+                  : "bg-transparent text-neutral-500 hover:text-[#111111]"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Inventory Stock Alert Banner */}
+      {(lowStock.length > 0 || outOfStock.length > 0) && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0 text-amber-700">
+              <AlertTriangle size={18} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-amber-900">Inventory Stock Alert</p>
+              <p className="text-xs text-amber-800 mt-0.5">
+                {outOfStock.length > 0 && (
+                  <span className="mr-2">
+                    <strong>{outOfStock.length}</strong> product(s) completely out of stock.
+                  </span>
+                )}
+                {lowStock.length > 0 && (
+                  <span>
+                    <strong>{lowStock.length}</strong> product(s) at or below reorder level.
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/products"
+            className="text-xs font-semibold px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white transition-colors shrink-0"
+          >
+            Review &amp; Restock →
+          </Link>
+        </div>
+      )}
+
       {/* Primary KPI Grid (4 Cards) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Today's Sales */}
+        {/* Card 1: Sales */}
         <motion.div
           variants={itemVariants}
           className="bg-[#111111] text-white rounded-3xl p-5 shadow-sm flex flex-col justify-between min-h-[145px]"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Today's Sales</span>
+            <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+              {periodLabel} Sales
+            </span>
             <span className="p-2 rounded-xl bg-white/10 text-[#FF9000]">
               <TrendingUp size={18} />
             </span>
@@ -171,7 +249,7 @@ export default function Dashboard() {
             <p className="text-3xl font-light font-heading tracking-tight text-white">{formatGhs(revenue)}</p>
             <div className="flex items-center gap-2 mt-2">
               <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 text-neutral-300 font-medium">
-                {todaySales.length} orders
+                {periodSales.length} orders
               </span>
               <span className="text-xs text-neutral-400">· {itemsSold} units sold</span>
             </div>

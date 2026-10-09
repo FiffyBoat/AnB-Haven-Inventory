@@ -117,6 +117,38 @@ export default function PaymentModal({ open, onClose, total, customer, onConfirm
               <span className="font-medium text-[#D9624A]">{formatGhs(credit)}</span>
             </div>
           )}
+          {credit > 0 && customer && (
+            <div className="pt-2 border-t border-neutral-200/80 mt-1.5 space-y-1">
+              <div className="flex justify-between text-xs text-neutral-600">
+                <span>Current Balance:</span>
+                <span className="font-medium">{formatGhs(customer.current_balance || 0)}</span>
+              </div>
+              <div className="flex justify-between text-xs text-neutral-600">
+                <span>New Balance:</span>
+                <span className="font-semibold text-[#D9624A]">{formatGhs((customer.current_balance || 0) + credit)}</span>
+              </div>
+              {(customer.credit_limit || 0) > 0 && (
+                <div className="flex justify-between text-xs text-neutral-500">
+                  <span>Credit Limit:</span>
+                  <span>{formatGhs(customer.credit_limit)}</span>
+                </div>
+              )}
+              {(customer.credit_limit || 0) > 0 && (customer.current_balance || 0) + credit > customer.credit_limit && (
+                <p className="text-[11px] text-amber-800 bg-amber-50 p-1.5 rounded-lg border border-amber-200 mt-1">
+                  ⚠️ Note: Sale exceeds customer's credit limit of {formatGhs(customer.credit_limit)}.
+                </p>
+              )}
+              {customer.ghana_card_number ? (
+                <p className="text-[11px] text-blue-700 bg-blue-50 p-1.5 rounded-lg border border-blue-200 mt-1 flex items-center gap-1 font-mono">
+                  ✓ Ghana Card KYC: {customer.ghana_card_number}
+                </p>
+              ) : (
+                <p className="text-[11px] text-amber-800 bg-amber-50 p-1.5 rounded-lg border border-amber-200 mt-1">
+                  ⚠️ No Ghana Card on file for this customer.
+                </p>
+              )}
+            </div>
+          )}
           {credit > 0 && !customer && (
             <p className="flex items-center gap-1.5 text-xs text-[#D9624A] pt-1"><AlertCircle size={13} /> Select a customer first — credit is recorded to their account.</p>
           )}
