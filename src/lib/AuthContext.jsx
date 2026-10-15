@@ -50,7 +50,7 @@ export function AuthProvider({ children }) {
       isLoadingAuth,
       isLoadingPublicSettings: false,
       authError: null,
-      authChecked: Boolean(user),
+      authChecked: !isLoadingAuth,
       logout,
       login,
       loginWithPin,

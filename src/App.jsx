@@ -23,6 +23,8 @@ import DailyClosing from './pages/DailyClosing';
 import StockCount from './pages/StockCount';
 import ReorderList from './pages/ReorderList';
 import ActivityLog from './pages/ActivityLog';
+import WarrantyLookup from './pages/WarrantyLookup';
+import Expenses from './pages/Expenses';
 
 
 const AuthenticatedApp = () => {
@@ -52,6 +54,8 @@ const AuthenticatedApp = () => {
         <Route path="/closing" element={<DailyClosing />} />
         <Route path="/stock-count" element={<StockCount />} />
         <Route path="/reorder" element={<ReorderList />} />
+        <Route path="/warranty" element={<WarrantyLookup />} />
+        <Route path="/expenses" element={<Expenses />} />
         <Route path="/activity" element={<ActivityLog />} />
         <Route path="/team" element={<Team />} />
         <Route path="/data" element={<DataManagement />} />

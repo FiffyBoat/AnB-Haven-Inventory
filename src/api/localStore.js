@@ -7,7 +7,7 @@ const BACKUP_FORMAT = "anb-inventory-backup";
 const BACKUP_VERSION = 1;
 
 const entityNames = [
-  "Category", "CreditTransaction", "Customer", "DailyClosingLog", "MarketTrend", "Product", "ProductUnit",
+  "Category", "CreditTransaction", "Customer", "DailyClosingLog", "Expense", "MarketTrend", "Product", "ProductUnit",
   "Purchase", "PurchaseOrder", "Sale", "SaleReturn", "StockMovement", "Supplier", "User",
 ];
 
@@ -318,7 +318,7 @@ function createSale(body) {
   const total = round2(subtotal - lineDiscounts - saleDiscount);
   const payments = (Array.isArray(body.payments) ? body.payments : []).map((payment) => ({ method: String(payment.method || "CASH"), amount: round2(payment.amount), provider: payment.provider || "", reference: payment.reference || "" })).filter((payment) => payment.amount > 0);
   const amountPaid = round2(payments.reduce((sum, payment) => sum + payment.amount, 0));
-  if (amountPaid > total) throw new Error("Amount paid cannot exceed the sale total");
+  if (amountPaid > round2(total + 0.005)) throw new Error("Amount paid cannot exceed the sale total");
   const creditAmount = round2(total - amountPaid);
   const customer = body.customer_id ? data.Customer.find((item) => item.id === body.customer_id) : null;
   if (creditAmount && !customer) throw new Error("Credit sale requires a customer");
@@ -510,8 +510,11 @@ function returnSale(body) {
   let customer = null;
   if (refundMethod === "CREDIT_BALANCE") {
     customer = data.Customer.find((item) => item.id === sale.customer_id);
-    if (!customer || (Number(customer.current_balance) || 0) < refundAmount) throw new Error("Customer balance is too low for a credit-balance refund");
-    customer.current_balance = round2(customer.current_balance - refundAmount);
+    // A CREDIT_BALANCE refund reduces what the customer owes (their debt balance).
+    // Require the customer to actually have an outstanding balance > 0 before reducing it.
+    if (!customer) throw new Error("Customer not found for credit-balance refund");
+    if ((Number(customer.current_balance) || 0) <= 0) throw new Error("Customer has no outstanding credit balance to reduce");
+    customer.current_balance = round2(Math.max(0, customer.current_balance - refundAmount));
     customer.updated_date = now();
     creditTx = { id: id(), created_date: now(), updated_date: now(), customer_id: customer.id, customer_name: customer.name, transaction_type: "CREDIT_ADJUSTMENT", amount: refundAmount, balance_after: customer.current_balance, sale_id: sale.id, description: `Return against sale ${sale.sale_number}`, created_by_name: currentUser()?.full_name || "Owner" };
     data.CreditTransaction.push(creditTx);
@@ -575,6 +578,9 @@ function saveDailyClosingLog(body) {
     updated_date: now(),
     closed_by_name: user?.full_name || "Business Owner",
     closed_by_id: user?.id || "local-owner",
+    // Persist cash-drawer fields so DailyClosing.jsx can restore them on reload
+    opening_float: body.opening_float !== undefined ? Number(body.opening_float) || 0 : 0,
+    actual_cash_in_drawer: body.actual_cash_in_drawer !== undefined && body.actual_cash_in_drawer !== null ? Number(body.actual_cash_in_drawer) : null,
     financials: body.financials || {},
     cashier_breakdown: body.cashier_breakdown || [],
     items: Array.isArray(body.items) ? body.items : [],

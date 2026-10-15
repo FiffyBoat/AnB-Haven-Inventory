@@ -20,6 +20,7 @@ import {
   UserCheck,
   Package,
   Users,
+  ShieldAlert,
 } from "lucide-react";
 
 const containerVariants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } };
@@ -31,6 +32,7 @@ export default function Dashboard() {
   const [products, setProducts] = useState([]);
   const [sales, setSales] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [expenses, setExpenses] = useState([]);
   const [period, setPeriod] = useState("today"); // 'today' | 'week' | 'month' | 'all'
 
   useEffect(() => {
@@ -39,11 +41,13 @@ export default function Dashboard() {
         localStore.entities.Product.list(),
         localStore.entities.Sale.list("-created_date", 200),
         localStore.entities.Customer.list(),
+        localStore.entities.Expense.list("-expense_date", 500).catch(() => []),
       ])
-        .then(([p, s, c]) => {
+        .then(([p, s, c, exp]) => {
           setProducts(p);
           setSales(s);
           setCustomers(c);
+          setExpenses(exp || []);
           setLoading(false);
         })
         .catch(() => setLoading(false));
@@ -111,6 +115,26 @@ export default function Dashboard() {
     0
   );
   const creditTotal = periodSales.reduce((sum, s) => sum + (s.credit_amount || 0), 0);
+
+  // Period Expenses & True Net Profit
+  const periodExpenses = expenses.filter((e) => {
+    if (period === "all") return true;
+    const time = new Date(e.expense_date || e.created_date).getTime();
+    const now = Date.now();
+    if (period === "today") return isToday(e.expense_date || e.created_date);
+    if (period === "week") return now - time <= 7 * 86400000;
+    if (period === "month") return now - time <= 30 * 86400000;
+    return true;
+  });
+  const totalExpenses = periodExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const netProfit = grossProfit - totalExpenses;
+
+  // Overdue Installment Debtors
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const overdueDebtors = customers.filter(
+    (c) => (c.current_balance || 0) > 0 && c.next_due_date && c.next_due_date <= todayStr
+  );
+  const totalOverdue = overdueDebtors.reduce((sum, c) => sum + (c.current_balance || 0), 0);
 
   const lowStock = active.filter((p) => (p.current_stock || 0) > 0 && (p.current_stock || 0) <= (p.reorder_level || 0));
   const outOfStock = active.filter((p) => (p.current_stock || 0) === 0);
@@ -198,6 +222,29 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Overdue Installment Recovery Alert */}
+      {overdueDebtors.length > 0 && (
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center shrink-0 text-rose-700">
+              <ShieldAlert size={18} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-rose-900">Overdue Installment Recovery Alert</p>
+              <p className="text-xs text-rose-800 mt-0.5">
+                <strong>{overdueDebtors.length}</strong> customer(s) have installment balances overdue or due today totaling <strong>{formatGhs(totalOverdue)}</strong>.
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/customers"
+            className="text-xs font-semibold px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white transition-colors shrink-0"
+          >
+            Review Debtors →
+          </Link>
+        </div>
+      )}
+
       {/* Inventory Stock Alert Banner */}
       {(lowStock.length > 0 || outOfStock.length > 0) && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
@@ -230,8 +277,8 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Primary KPI Grid (4 Cards) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Primary KPI Grid (5 Cards) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Card 1: Sales */}
         <motion.div
           variants={itemVariants}
@@ -246,12 +293,12 @@ export default function Dashboard() {
             </span>
           </div>
           <div className="mt-4">
-            <p className="text-3xl font-light font-heading tracking-tight text-white">{formatGhs(revenue)}</p>
+            <p className="text-2xl font-light font-heading tracking-tight text-white">{formatGhs(revenue)}</p>
             <div className="flex items-center gap-2 mt-2">
               <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 text-neutral-300 font-medium">
                 {periodSales.length} orders
               </span>
-              <span className="text-xs text-neutral-400">· {itemsSold} units sold</span>
+              <span className="text-xs text-neutral-400">· {itemsSold} units</span>
             </div>
           </div>
         </motion.div>
@@ -268,17 +315,40 @@ export default function Dashboard() {
             </span>
           </div>
           <div className="mt-4">
-            <p className="text-3xl font-light font-heading tracking-tight text-emerald-700">{formatGhs(grossProfit)}</p>
+            <p className="text-2xl font-light font-heading tracking-tight text-emerald-700">{formatGhs(grossProfit)}</p>
             <div className="flex items-center gap-2 mt-2">
               <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium border border-emerald-100">
                 {marginPct}% margin
               </span>
-              <span className="text-xs text-neutral-400">vs purchase cost</span>
+              <span className="text-xs text-neutral-400">vs cost</span>
             </div>
           </div>
         </motion.div>
 
-        {/* Card 3: Payments Collected */}
+        {/* Card 3: True Net Profit (After Store Expenses) */}
+        <motion.div
+          variants={itemVariants}
+          className="bg-white rounded-3xl p-5 border border-neutral-100 shadow-sm flex flex-col justify-between min-h-[145px]"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Net Profit</span>
+            <span className={`p-2 rounded-xl ${netProfit >= 0 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"}`}>
+              <ReceiptText size={18} />
+            </span>
+          </div>
+          <div className="mt-4">
+            <p className={`text-2xl font-light font-heading tracking-tight ${netProfit >= 0 ? "text-emerald-700" : "text-rose-600"}`}>
+              {formatGhs(netProfit)}
+            </p>
+            <div className="flex items-center gap-1.5 mt-2">
+              <Link to="/expenses" className="text-xs text-neutral-400 hover:text-[#111111] hover:underline">
+                Less {formatGhs(totalExpenses)} expenses →
+              </Link>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Card 4: Payments Collected */}
         <motion.div
           variants={itemVariants}
           className="bg-white rounded-3xl p-5 border border-neutral-100 shadow-sm flex flex-col justify-between min-h-[145px]"
@@ -290,22 +360,22 @@ export default function Dashboard() {
             </span>
           </div>
           <div className="mt-4">
-            <p className="text-3xl font-light font-heading tracking-tight text-[#111111]">
+            <p className="text-2xl font-light font-heading tracking-tight text-[#111111]">
               {formatGhs(cashTotal + momoTotal)}
             </p>
             <div className="flex items-center gap-2 mt-2 text-xs text-neutral-500 flex-wrap">
               <span className="inline-flex items-center gap-1 font-medium text-neutral-700">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Cash {formatGhs(cashTotal)}
+                Cash {formatGhs(cashTotal)}
               </span>
               <span>·</span>
               <span className="inline-flex items-center gap-1 font-medium text-neutral-700">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span> MoMo {formatGhs(momoTotal)}
+                MoMo {formatGhs(momoTotal)}
               </span>
             </div>
           </div>
         </motion.div>
 
-        {/* Card 4: Inventory Value */}
+        {/* Card 5: Inventory Value */}
         <motion.div
           variants={itemVariants}
           className="bg-white rounded-3xl p-5 border border-neutral-100 shadow-sm flex flex-col justify-between min-h-[145px]"
@@ -317,10 +387,10 @@ export default function Dashboard() {
             </span>
           </div>
           <div className="mt-4">
-            <p className="text-3xl font-light font-heading tracking-tight text-[#111111]">{formatGhs(inventoryValue)}</p>
+            <p className="text-2xl font-light font-heading tracking-tight text-[#111111]">{formatGhs(inventoryValue)}</p>
             <div className="flex items-center gap-2 mt-2 text-xs text-neutral-500">
               <span className="font-medium text-neutral-700">{totalUnits} units</span>
-              <span>across</span>
+              <span>·</span>
               <span className="font-medium text-neutral-700">{active.length} SKUs</span>
             </div>
           </div>

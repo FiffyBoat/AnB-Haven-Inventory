@@ -77,6 +77,7 @@ export default function Customers() {
   const [loading, setLoading] = useState(true);
   const [customers, setCustomers] = useState([]);
   const [query, setQuery] = useState("");
+  const [statusTab, setStatusTab] = useState("all"); // 'all' | 'debtors' | 'overdue'
 
   // Modals & Panels
   const [modalMode, setModalMode] = useState(null); // 'create' | 'edit' | null
@@ -116,8 +117,16 @@ export default function Customers() {
     return () => window.removeEventListener("anb_data_synced", refresh);
   }, []);
 
+  const todayStr = new Date().toISOString().slice(0, 10);
+
   const filtered = customers.filter((c) => {
     const q = query.trim().toLowerCase();
+    const hasBalance = (c.current_balance || 0) > 0;
+    const isOverdue = hasBalance && c.next_due_date && c.next_due_date <= todayStr;
+
+    if (statusTab === "debtors" && !hasBalance) return false;
+    if (statusTab === "overdue" && !isOverdue) return false;
+
     return (
       !q ||
       [c.name, c.phone, c.ghana_card_number, c.ghana_card_name, c.alt_phone]
@@ -407,55 +416,110 @@ export default function Customers() {
         </div>
       </div>
 
+      {/* Quick Filter Tabs */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+        <button
+          onClick={() => setStatusTab("all")}
+          className={`px-4 py-2 rounded-full font-medium transition-colors cursor-pointer border-none shrink-0 shadow-sm ${
+            statusTab === "all" ? "bg-[#111111] text-white" : "bg-white text-neutral-600 hover:bg-neutral-100"
+          }`}
+        >
+          All Customers ({customers.length})
+        </button>
+        <button
+          onClick={() => setStatusTab("debtors")}
+          className={`px-4 py-2 rounded-full font-medium transition-colors cursor-pointer border-none shrink-0 shadow-sm ${
+            statusTab === "debtors" ? "bg-[#111111] text-white" : "bg-white text-neutral-600 hover:bg-neutral-100"
+          }`}
+        >
+          Has Outstanding Debt ({customers.filter((c) => (c.current_balance || 0) > 0).length})
+        </button>
+        <button
+          onClick={() => setStatusTab("overdue")}
+          className={`px-4 py-2 rounded-full font-medium transition-colors cursor-pointer border-none shrink-0 shadow-sm flex items-center gap-1.5 ${
+            statusTab === "overdue" ? "bg-rose-600 text-white" : "bg-white text-rose-600 hover:bg-rose-50"
+          }`}
+        >
+          <span>⚠️ Overdue Installments ({customers.filter((c) => (c.current_balance || 0) > 0 && c.next_due_date && c.next_due_date <= todayStr).length})</span>
+        </button>
+      </div>
+
       {/* Customer list */}
       <div className="bg-white rounded-3xl overflow-hidden border border-neutral-100 shadow-sm">
         {filtered.length === 0 ? (
           <div className="p-12 text-center">
             <UserRound size={32} className="text-neutral-300 mx-auto" />
             <p className="text-sm text-neutral-400 mt-3">
-              {query ? "No customers match your search." : "No customers yet. Add one to start tracking credit and installment plans."}
+              {query ? "No customers match your search." : "No customers found for this filter tab."}
             </p>
           </div>
         ) : (
-          filtered.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => openDetail(c)}
-              className="w-full flex items-center justify-between px-5 py-4 border-b border-neutral-100 last:border-0 hover:bg-neutral-50 cursor-pointer border-x-0 border-t-0 bg-transparent text-left transition-colors"
-            >
-              <div className="min-w-0 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center shrink-0">
-                  <UserRound size={18} className="text-neutral-500" />
+          filtered.map((c) => {
+            const hasBalance = (c.current_balance || 0) > 0;
+            const isOverdue = hasBalance && c.next_due_date && c.next_due_date <= todayStr;
+            const isDueToday = hasBalance && c.next_due_date && c.next_due_date === todayStr;
+
+            return (
+              <button
+                key={c.id}
+                onClick={() => openDetail(c)}
+                className="w-full flex items-center justify-between px-5 py-4 border-b border-neutral-100 last:border-0 hover:bg-neutral-50 cursor-pointer border-x-0 border-t-0 bg-transparent text-left transition-colors"
+              >
+                <div className="min-w-0 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center shrink-0">
+                    <UserRound size={18} className="text-neutral-500" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-[#111111] truncate">{c.name}</p>
+                      {c.ghana_card_number && (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded font-mono font-medium">
+                          GH Card: {c.ghana_card_number}
+                        </span>
+                      )}
+                      {isOverdue && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-rose-100 text-rose-800">
+                          {isDueToday ? "Due Today" : "Overdue"}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                      {c.phone || "No phone"}
+                      {c.next_due_date && (
+                        <span className="ml-2 text-neutral-400">
+                          · Next installment: {new Date(c.next_due_date).toLocaleDateString("en-GH")}
+                        </span>
+                      )}
+                    </p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-[#111111] truncate">{c.name}</p>
-                    {c.ghana_card_number && (
-                      <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded font-mono font-medium">
-                        GH Card: {c.ghana_card_number}
-                      </span>
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className="text-right">
+                    <p className={"text-sm font-semibold " + (hasBalance ? "text-[#D9624A]" : "text-[#616E5D]")}>
+                      {hasBalance ? `owes ${formatGhs(c.current_balance)}` : "settled"}
+                    </p>
+                    {(c.credit_limit || 0) > 0 && (
+                      <p className="text-xs text-neutral-400">limit {formatGhs(c.credit_limit)}</p>
                     )}
                   </div>
-                  <p className="text-xs text-neutral-500 mt-0.5">
-                    {c.phone || "No phone"}
-                    {c.next_due_date && (
-                      <span className="ml-2 text-neutral-400">
-                        · Next due: {new Date(c.next_due_date).toLocaleDateString("en-GH")}
-                      </span>
-                    )}
-                  </p>
+                  {hasBalance && c.phone && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        sendWhatsAppReminder(c);
+                      }}
+                      className="h-9 px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-medium flex items-center gap-1 cursor-pointer border border-emerald-200 transition-colors"
+                      title="Send WhatsApp Payment Reminder"
+                    >
+                      <MessageCircle size={14} />
+                      <span className="hidden sm:inline">WhatsApp</span>
+                    </button>
+                  )}
                 </div>
-              </div>
-              <div className="text-right shrink-0">
-                <p className={"text-sm font-semibold " + ((c.current_balance || 0) > 0 ? "text-[#D9624A]" : "text-[#616E5D]")}>
-                  {(c.current_balance || 0) > 0 ? `owes ${formatGhs(c.current_balance)}` : "settled"}
-                </p>
-                {(c.credit_limit || 0) > 0 && (
-                  <p className="text-xs text-neutral-400">limit {formatGhs(c.credit_limit)}</p>
-                )}
-              </div>
-            </button>
-          ))
+              </button>
+            );
+          })
         )}
       </div>
 

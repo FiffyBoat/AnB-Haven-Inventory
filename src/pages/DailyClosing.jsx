@@ -33,6 +33,7 @@ export default function DailyClosing() {
 
   const [sales, setSales] = useState([]);
   const [products, setProducts] = useState([]);
+  const [expenses, setExpenses] = useState([]);
   const [savedClosing, setSavedClosing] = useState(null);
   const [date, setDate] = useState(today());
   const [loading, setLoading] = useState(true);
@@ -51,14 +52,16 @@ export default function DailyClosing() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [allSales, allProducts, closingLogs] = await Promise.all([
+      const [allSales, allProducts, closingLogs, allExpenses] = await Promise.all([
         localStore.entities.Sale.list("-created_date", 1000),
         localStore.entities.Product.list(),
         localStore.entities.DailyClosingLog.filter({ closing_date: date }),
+        localStore.entities.Expense.list("-expense_date", 300).catch(() => []),
       ]);
 
       setSales(allSales);
       setProducts(allProducts.filter((p) => p.status === "active"));
+      setExpenses(allExpenses || []);
 
       const existing = closingLogs?.[0] || null;
       setSavedClosing(existing);
@@ -164,6 +167,23 @@ export default function DailyClosing() {
 
     return { completed, totals, cashiers, soldCountByProduct };
   }, [sales, date]);
+
+  // Expenses recorded for this closing date
+  const dayExpenses = useMemo(() => {
+    return expenses.filter(
+      (e) => (e.expense_date || (e.created_date && e.created_date.slice(0, 10))) === date
+    );
+  }, [expenses, date]);
+
+  const dayCashExpenses = useMemo(() => {
+    return dayExpenses
+      .filter((e) => e.paid_from_drawer || e.payment_method === "CASH")
+      .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  }, [dayExpenses]);
+
+  const dayTotalExpenses = useMemo(() => {
+    return dayExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  }, [dayExpenses]);
 
   // Inventory & remaining items audit calculations
   const stockAudit = useMemo(() => {
@@ -481,7 +501,7 @@ export default function DailyClosing() {
       {/* SECTION 1: Financial Reconciliation */}
       {(activeTab === "all" || activeTab === "financial") && (
         <div className="flex flex-col gap-4">
-          <section className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+          <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {metric(
               "Sales total",
               formatGhs(totals.sales),
@@ -492,7 +512,14 @@ export default function DailyClosing() {
             {metric("Expected cash in drawer", formatGhs(totals.cash), "Cash payments recorded")}
             {metric("Mobile money", formatGhs(totals.momo), "MoMo payments recorded")}
             {metric("Credit issued", formatGhs(totals.credit), "Added to customer balances", "bg-[#fff3e6]")}
+            {metric("Shop expenses", formatGhs(dayTotalExpenses), `${dayExpenses.length} expense(s) recorded`, "bg-rose-50")}
             {metric("Gross profit", formatGhs(totals.profit), `${totals.items} item${totals.items === 1 ? "" : "s"} sold`, "bg-[#eff6ec]")}
+            {metric(
+              "Net profit (after expenses)",
+              formatGhs(totals.profit - dayTotalExpenses),
+              "Gross profit minus store expenses",
+              totals.profit - dayTotalExpenses >= 0 ? "bg-[#eff6ec]" : "bg-rose-50"
+            )}
             {metric("Total money collected", formatGhs(totals.cash + totals.momo), "Cash in drawer + MoMo total")}
           </section>
 
@@ -501,14 +528,14 @@ export default function DailyClosing() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-neutral-100 gap-2">
               <div>
                 <h2 className="text-sm font-semibold text-[#111111]">Cash Register &amp; Drawer Handover</h2>
-                <p className="text-xs text-neutral-400 mt-0.5">Compare opening float + cash sales against the physical cash in drawer</p>
+                <p className="text-xs text-neutral-400 mt-0.5">Compare opening float + cash sales − drawer payouts against the physical cash in drawer</p>
               </div>
               <span className="text-xs px-2.5 py-1 rounded-full bg-neutral-100 text-neutral-600 font-medium self-start sm:self-auto">
                 Shift Balancing
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mt-4 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 mt-4 text-xs">
               <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-100">
                 <label className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider block mb-1">
                   Opening Float (GHS)
@@ -522,7 +549,7 @@ export default function DailyClosing() {
                   onChange={(e) => setOpeningFloat(e.target.value)}
                   className="w-full h-9 px-2.5 rounded-lg border border-neutral-200 bg-white font-mono font-semibold text-sm text-[#111111] focus:outline-none focus:border-[#FF9000]"
                 />
-                <p className="text-[10px] text-neutral-400 mt-1">Cash in drawer at shift start</p>
+                <p className="text-[10px] text-neutral-400 mt-1">Shift start float</p>
               </div>
 
               <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-100">
@@ -537,12 +564,22 @@ export default function DailyClosing() {
 
               <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-100">
                 <span className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider block mb-1">
+                  Drawer Payouts (Expenses)
+                </span>
+                <p className="text-sm font-mono font-bold text-rose-600 h-9 flex items-center">
+                  -{formatGhs(dayCashExpenses)}
+                </p>
+                <p className="text-[10px] text-neutral-400 mt-1">{dayExpenses.filter((e) => e.paid_from_drawer).length} cash payout(s)</p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-100">
+                <span className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider block mb-1">
                   Expected Drawer Total
                 </span>
                 <p className="text-sm font-mono font-bold text-[#111111] h-9 flex items-center">
-                  ={formatGhs((Number(openingFloat) || 0) + totals.cash)}
+                  ={formatGhs((Number(openingFloat) || 0) + totals.cash - dayCashExpenses)}
                 </p>
-                <p className="text-[10px] text-neutral-400 mt-1">Float + cash sales</p>
+                <p className="text-[10px] text-neutral-400 mt-1">Float + Sales − Expenses</p>
               </div>
 
               <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-100">
@@ -564,7 +601,7 @@ export default function DailyClosing() {
 
             {/* Cash Discrepancy Alert */}
             {actualCashInDrawer !== "" && (() => {
-              const expectedTotal = (Number(openingFloat) || 0) + totals.cash;
+              const expectedTotal = (Number(openingFloat) || 0) + totals.cash - dayCashExpenses;
               const actualTotal = Number(actualCashInDrawer) || 0;
               const diff = actualTotal - expectedTotal;
               if (Math.abs(diff) < 0.01) {

@@ -5,7 +5,9 @@ import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
 import { formatGhs } from "@/lib/format";
 import ProductFormDialog from "@/components/ProductFormDialog";
-import { Search, Plus, Package, Tag, Pencil, Trash2, Check, X } from "lucide-react";
+import ProductImport from "@/components/ProductImport";
+import BarcodeLabelDialog from "@/components/BarcodeLabelDialog";
+import { Search, Plus, Package, Tag, Pencil, Trash2, Check, X, Upload, Barcode } from "lucide-react";
 
 export default function Products() {
   const { user } = useAuth();
@@ -17,6 +19,8 @@ export default function Products() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [formOpen, setFormOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [labelProduct, setLabelProduct] = useState(null);
   const [catOpen, setCatOpen] = useState(false);
   const [newCat, setNewCat] = useState("");
   const [editingCatId, setEditingCatId] = useState(null);
@@ -145,9 +149,20 @@ export default function Products() {
           <p className="text-sm text-neutral-500 mt-1">{products.length} products in catalog</p>
         </div>
         {isOwner && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button onClick={() => setCatOpen(true)} className="h-11 px-4 rounded-full bg-white text-sm flex items-center gap-2 cursor-pointer border border-neutral-200">
               <Tag size={15} /> Categories
+            </button>
+            <button onClick={() => setImportOpen(true)} className="h-11 px-4 rounded-full bg-white text-sm flex items-center gap-2 cursor-pointer border border-neutral-200 hover:border-neutral-400 transition-colors">
+              <Upload size={15} /> Import
+            </button>
+            <button
+              onClick={() => setLabelProduct(filtered[0] || products[0])}
+              disabled={products.length === 0}
+              className="h-11 px-4 rounded-full bg-white text-sm flex items-center gap-2 cursor-pointer border border-neutral-200 hover:border-neutral-400 transition-colors disabled:opacity-40"
+              title="Print barcode / price tag labels"
+            >
+              <Barcode size={16} /> Print Labels
             </button>
             <button onClick={() => setFormOpen(true)} className="h-11 px-5 rounded-full bg-[#FF9000] text-sm font-medium text-[#111111] flex items-center gap-2 cursor-pointer border-none">
               <Plus size={15} /> New Product
@@ -171,25 +186,41 @@ export default function Products() {
         {filtered.map((p) => {
           const stock = p.current_stock || 0;
           return (
-            <Link key={p.id} to={`/products/${p.id}`} className="bg-white rounded-3xl p-4 flex flex-col hover:shadow-md transition-shadow">
-              <div className="aspect-square rounded-2xl bg-neutral-100 flex items-center justify-center overflow-hidden mb-3">
-                {p.image_url ? (
-                  <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
-                ) : (
-                  <Package size={28} className="text-neutral-300" />
-                )}
-              </div>
-              <p className="text-sm font-medium text-[#111111] leading-snug line-clamp-2">{p.name}</p>
-              <p className="text-xs text-neutral-500 mt-1">{p.sku}</p>
-              <div className="flex items-center justify-between mt-3">
-                <p className="text-sm font-semibold text-[#111111]">{formatGhs(p.selling_price)}</p>
-                <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{
-                  background: stock === 0 ? "#FDEAE6" : stock <= (p.reorder_level || 0) ? "#FFF3E6" : "#EFF6EC",
-                  color: stock === 0 ? "#F13A15" : stock <= (p.reorder_level || 0) ? "#D9624A" : "#616E5D",
-                }}>{stock} in stock</span>
-              </div>
-              {isOwner && <p className="text-xs text-neutral-400 mt-1">Cost {formatGhs(p.cost_price)}</p>}
-            </Link>
+            <div key={p.id} className="relative group bg-white rounded-3xl p-4 flex flex-col hover:shadow-md transition-shadow">
+              <Link to={`/products/${p.id}`} className="flex flex-col flex-1">
+                <div className="aspect-square rounded-2xl bg-neutral-100 flex items-center justify-center overflow-hidden mb-3 relative">
+                  {p.image_url ? (
+                    <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <Package size={28} className="text-neutral-300" />
+                  )}
+                </div>
+                <p className="text-sm font-medium text-[#111111] leading-snug line-clamp-2">{p.name}</p>
+                <p className="text-xs text-neutral-500 mt-1">{p.sku}</p>
+                <div className="flex items-center justify-between mt-3">
+                  <p className="text-sm font-semibold text-[#111111]">{formatGhs(p.selling_price)}</p>
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{
+                    background: stock === 0 ? "#FDEAE6" : stock <= (p.reorder_level || 0) ? "#FFF3E6" : "#EFF6EC",
+                    color: stock === 0 ? "#F13A15" : stock <= (p.reorder_level || 0) ? "#D9624A" : "#616E5D",
+                  }}>{stock} in stock</span>
+                </div>
+                {isOwner && <p className="text-xs text-neutral-400 mt-1">Cost {formatGhs(p.cost_price)}</p>}
+              </Link>
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setLabelProduct(p);
+                  }}
+                  title="Print barcode / price label"
+                  className="absolute top-6 right-6 p-2 rounded-xl bg-white/90 hover:bg-white text-neutral-600 hover:text-[#111111] shadow-sm border border-neutral-200 cursor-pointer opacity-80 group-hover:opacity-100 transition-opacity"
+                >
+                  <Barcode size={15} />
+                </button>
+              )}
+            </div>
           );
         })}
       </div>
@@ -316,6 +347,21 @@ export default function Products() {
             </div>
           </div>
         </div>
+      )}
+      {importOpen && (
+        <ProductImport
+          categories={categories}
+          onImported={() => { refresh(); }}
+          onClose={() => setImportOpen(false)}
+        />
+      )}
+      {labelProduct && (
+        <BarcodeLabelDialog
+          open={!!labelProduct}
+          product={labelProduct}
+          allProducts={products}
+          onClose={() => setLabelProduct(null)}
+        />
       )}
     </div>
   );

@@ -4,8 +4,9 @@ import { localStore } from "@/api/localStore";
 import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
 import { formatDateTime } from "@/lib/format";
-import { ArrowLeft, Package } from "lucide-react";
+import { ArrowLeft, Package, Barcode } from "lucide-react";
 import ImageUploader from "@/components/ImageUploader";
+import BarcodeLabelDialog from "@/components/BarcodeLabelDialog";
 
 const REASONS = [
   { value: "OPENING_STOCK", label: "Opening stock (+)" },
@@ -28,6 +29,7 @@ export default function ProductDetail() {
   const [adj, setAdj] = useState({ delta: "", reason: "ADJUSTMENT_IN", notes: "" });
   const [unitId, setUnitId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [labelOpen, setLabelOpen] = useState(false);
 
   const refresh = async () => {
     try {
@@ -178,7 +180,12 @@ export default function ProductDetail() {
                   <input type="number" min="0" step="0.01" value={prices.sell} onChange={(e) => setPrices({ ...prices, sell: e.target.value })} className={inputCls} />
                 </div>
               </div>
-              <button disabled={busy} onClick={savePrices} className="mt-3 h-10 px-5 rounded-full bg-[#111111] text-white text-sm cursor-pointer border-none">Save Prices</button>
+              <div className="flex gap-2 mt-3">
+                <button disabled={busy} onClick={savePrices} className="h-10 px-5 rounded-full bg-[#111111] text-white text-sm cursor-pointer border-none">Save Prices</button>
+                <button type="button" onClick={() => setLabelOpen(true)} className="h-10 px-4 rounded-full bg-neutral-100 hover:bg-neutral-200 text-[#111111] text-xs font-medium flex items-center gap-1.5 cursor-pointer border border-neutral-200 transition-colors">
+                  <Barcode size={15} /> Print Barcode / Label
+                </button>
+              </div>
             </div>
           )}
 
@@ -259,6 +266,12 @@ export default function ProductDetail() {
           </div>
         </div>
       </div>
+      <BarcodeLabelDialog
+        open={labelOpen}
+        onClose={() => setLabelOpen(false)}
+        product={product}
+        units={units}
+      />
     </div>
   );
 }

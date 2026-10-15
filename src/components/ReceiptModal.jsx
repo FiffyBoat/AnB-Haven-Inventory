@@ -1,12 +1,82 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { formatGhs, formatDateTime } from "@/lib/format";
-import { Printer, Undo2, X } from "lucide-react";
+import { Printer, Undo2, X, MessageCircle, Send, Check } from "lucide-react";
 import { printDocument } from "@/lib/print";
+import { localStore } from "@/api/localStore";
+
+function sanitizeGhPhone(phone) {
+  if (!phone) return "";
+  const cleaned = String(phone).replace(/[^0-9]/g, "");
+  if (cleaned.startsWith("0") && cleaned.length === 10) {
+    return "233" + cleaned.slice(1);
+  }
+  if (cleaned.startsWith("233")) return cleaned;
+  return cleaned;
+}
+
+function buildWhatsAppReceiptText(sale) {
+  const credit = (sale.credit_amount || 0) > 0;
+  const itemsText = (sale.items || [])
+    .map((it) => {
+      const ident = it.identifier ? `\n   ID: ${it.identifier}` : "";
+      const disc = it.discount ? ` (disc: -${formatGhs(it.discount)})` : "";
+      return `• *${it.product_name}*${ident}\n   ${it.quantity} × ${formatGhs(it.unit_price)}${disc} = *${formatGhs(it.total)}*`;
+    })
+    .join("\n");
+
+  const paymentsText = (sale.payments || [])
+    .map((p) => {
+      const m = p.method === "CASH" ? "Cash" : p.method === "MOBILE_MONEY" ? `Mobile Money${p.provider ? " (" + p.provider + ")" : ""}` : p.method;
+      return `${m}: ${formatGhs(p.amount)}`;
+    })
+    .join(", ");
+
+  return `🧾 *DANNY'S HEAVEN VENTURES*
+*Retail & Wholesale · Phones, Laptops & Accessories*
+Takoradi - Acalema, Ghana · GPS: GA-183-4921
+Contact: +233 59 239 0609
+────────────────────────────
+*Receipt:* ${sale.sale_number}
+*Date:* ${formatDateTime(sale.created_date)}
+*Customer:* ${sale.customer_name || "Walk-in Customer"}
+*Served by:* ${sale.cashier_name || "Cashier"}
+────────────────────────────
+*ITEMS:*
+${itemsText}
+────────────────────────────
+*Subtotal:* ${formatGhs(sale.subtotal)}
+${sale.discount > 0 ? `*Discount:* -${formatGhs(sale.discount)}\n` : ""}*TOTAL:* ${formatGhs(sale.total)}
+*Paid:* ${formatGhs(sale.amount_paid || sale.total)}${paymentsText ? ` (${paymentsText})` : ""}
+${credit ? `*Credit / Balance Due:* ${formatGhs(sale.credit_amount)}\n` : ""}────────────────────────────
+*Policy:* Warranty per item policy. No refund without receipt.
+_Thank you for choosing Danny's Heaven Ventures!_`;
+}
 
 export default function ReceiptModal({ open, onClose, sale, onReturn, autoPrint = false }) {
   if (!sale) return null;
   const credit = (sale.credit_amount || 0) > 0;
+  const [phone, setPhone] = useState("");
+  const [showPhoneInput, setShowPhoneInput] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Auto-fetch customer phone if linked
+  useEffect(() => {
+    if (!open || !sale) return;
+    setCopied(false);
+    setShowPhoneInput(false);
+    if (sale.customer_phone) {
+      setPhone(sale.customer_phone);
+    } else if (sale.customer_id) {
+      localStore.entities.Customer.get(sale.customer_id)
+        .then((c) => {
+          if (c?.phone) setPhone(c.phone);
+        })
+        .catch(() => {});
+    } else {
+      setPhone("");
+    }
+  }, [open, sale]);
 
   // Optional auto-print trigger once modal opens
   useEffect(() => {
@@ -17,6 +87,27 @@ export default function ReceiptModal({ open, onClose, sale, onReturn, autoPrint 
       return () => clearTimeout(timer);
     }
   }, [open, autoPrint]);
+
+  const handleSendWhatsApp = () => {
+    const raw = phone.trim();
+    if (!raw && !showPhoneInput) {
+      setShowPhoneInput(true);
+      return;
+    }
+    const clean = sanitizeGhPhone(raw);
+    const text = buildWhatsAppReceiptText(sale);
+    const url = clean
+      ? `https://wa.me/${clean}?text=${encodeURIComponent(text)}`
+      : `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank");
+  };
+
+  const handleCopyText = () => {
+    const text = buildWhatsAppReceiptText(sale);
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -72,12 +163,66 @@ export default function ReceiptModal({ open, onClose, sale, onReturn, autoPrint 
             <p className="mt-1">Thank you for your business!</p>
           </div>
         </div>
+
+        {/* WhatsApp Phone Input Bar (if open) */}
+        {showPhoneInput && (
+          <div className="mt-2 p-3 bg-white rounded-2xl border border-emerald-200 flex items-center gap-2 print:hidden shadow-sm">
+            <MessageCircle size={18} className="text-emerald-600 shrink-0" />
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="Customer WhatsApp (e.g. 0244123456)"
+              className="flex-1 h-9 px-3 text-xs rounded-xl border border-neutral-200 focus:outline-none focus:border-emerald-500"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSendWhatsApp();
+              }}
+            />
+            <button
+              onClick={handleSendWhatsApp}
+              className="h-9 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer border-none"
+            >
+              <Send size={13} /> Send
+            </button>
+          </div>
+        )}
+
+        {/* Actions Bar */}
         <div className="flex gap-2 mt-3 print:hidden">
-          <button onClick={() => printDocument("receipt")} className="flex-1 h-12 rounded-full bg-[#111111] text-white text-sm flex items-center justify-center gap-2 cursor-pointer border-none">
-            <Printer size={16} /> Print Receipt
+          <button
+            onClick={() => printDocument("receipt")}
+            className="flex-1 h-12 rounded-full bg-[#111111] text-white text-sm flex items-center justify-center gap-2 cursor-pointer border-none hover:bg-neutral-800 transition-colors"
+          >
+            <Printer size={16} /> Print
           </button>
-          {onReturn && <button onClick={onReturn} className="h-12 w-12 rounded-full bg-[#fff3e6] text-[#111111] flex items-center justify-center cursor-pointer border-none" title="Return items"><Undo2 size={17} /></button>}
-          <button onClick={onClose} className="h-12 w-12 rounded-full bg-white text-[#111111] flex items-center justify-center cursor-pointer border-none">
+          <button
+            onClick={phone && !showPhoneInput ? handleSendWhatsApp : () => setShowPhoneInput((s) => !s)}
+            className="flex-1 h-12 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm flex items-center justify-center gap-2 cursor-pointer border-none transition-colors"
+            title="Share receipt via WhatsApp"
+          >
+            <MessageCircle size={17} /> WhatsApp
+          </button>
+          <button
+            onClick={handleCopyText}
+            className="h-12 px-3 rounded-full bg-white hover:bg-neutral-50 text-[#111111] text-xs font-medium flex items-center justify-center cursor-pointer border-none"
+            title="Copy receipt text"
+          >
+            {copied ? <Check size={16} className="text-emerald-600" /> : "Copy"}
+          </button>
+          {onReturn && (
+            <button
+              onClick={onReturn}
+              className="h-12 w-12 rounded-full bg-[#fff3e6] text-[#111111] flex items-center justify-center cursor-pointer border-none"
+              title="Return items"
+            >
+              <Undo2 size={17} />
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="h-12 w-12 rounded-full bg-white text-[#111111] flex items-center justify-center cursor-pointer border-none hover:bg-neutral-100"
+          >
             <X size={18} />
           </button>
         </div>
