@@ -4,9 +4,10 @@ import { localStore } from "@/api/localStore";
 import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
 import { formatDateTime } from "@/lib/format";
-import { ArrowLeft, Package, Barcode } from "lucide-react";
+import { ArrowLeft, Package, Barcode, Camera } from "lucide-react";
 import ImageUploader from "@/components/ImageUploader";
 import BarcodeLabelDialog from "@/components/BarcodeLabelDialog";
+import CameraScannerModal from "@/components/pos/CameraScannerModal";
 
 const REASONS = [
   { value: "OPENING_STOCK", label: "Opening stock (+)" },
@@ -30,6 +31,7 @@ export default function ProductDetail() {
   const [unitId, setUnitId] = useState("");
   const [busy, setBusy] = useState(false);
   const [labelOpen, setLabelOpen] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const refresh = async () => {
     try {
@@ -223,6 +225,14 @@ export default function ProductDetail() {
                   <input value={unitId} onChange={(e) => setUnitId(e.target.value)}
                     placeholder={product.track_imei ? "Enter IMEI…" : "Enter serial number…"}
                     className="flex-1 h-11 rounded-xl border border-neutral-200 px-3 text-sm focus:outline-none focus:border-[#FF9000]" />
+                  <button
+                    type="button"
+                    onClick={() => setScannerOpen(true)}
+                    className="h-11 px-3 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-700 flex items-center justify-center cursor-pointer transition-colors"
+                    title={`Scan ${product.track_imei ? "IMEI" : "Serial"} with Camera`}
+                  >
+                    <Camera size={18} />
+                  </button>
                   <button disabled={busy} onClick={addUnit} className="h-11 px-4 rounded-xl bg-[#111111] text-white text-sm cursor-pointer border-none disabled:opacity-40">Add</button>
                 </div>
               )}
@@ -271,6 +281,12 @@ export default function ProductDetail() {
         onClose={() => setLabelOpen(false)}
         product={product}
         units={units}
+      />
+      <CameraScannerModal
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={(code) => setUnitId(code)}
+        title={`Scan ${product?.track_imei ? "IMEI" : "Serial"} Barcode`}
       />
     </div>
   );

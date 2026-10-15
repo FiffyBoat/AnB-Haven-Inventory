@@ -3,7 +3,8 @@ import { useLocation } from "react-router-dom";
 import { localStore } from "@/api/localStore";
 import { useToast } from "@/components/ui/use-toast";
 import { formatGhs, formatDateTime } from "@/lib/format";
-import { Plus, Trash2, Truck, Hash, CheckCircle2, Clock3, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Trash2, Truck, Hash, CheckCircle2, Clock3, ChevronDown, ChevronUp, Camera } from "lucide-react";
+import CameraScannerModal from "@/components/pos/CameraScannerModal";
 
 const emptyItem = { product_id: "", quantity: "", unit_cost: "", identifiers: "", defer_identifiers: false };
 
@@ -15,6 +16,7 @@ function PendingUnitsPanel({ products, onRefresh }) {
   const [rows, setRows] = useState([]); // { purchase, item, product, missing }
   const [inputs, setInputs] = useState({}); // purchaseItemKey → textarea value
   const [busy, setBusy] = useState({});
+  const [activeScanRow, setActiveScanRow] = useState(null);
 
   useEffect(() => {
     localStore.entities.Purchase.list("-created_date", 200).then((purchases) => {
@@ -67,6 +69,15 @@ function PendingUnitsPanel({ products, onRefresh }) {
     }
   };
 
+  const handleScannedCode = (code) => {
+    if (!activeScanRow) return;
+    const k = key(activeScanRow);
+    const current = (inputs[k] || "").trim();
+    const updated = current ? `${current}\n${code}` : code;
+    setInputs((prev) => ({ ...prev, [k]: updated }));
+    toast({ title: "Code Scanned", description: `${code} added to list.` });
+  };
+
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-3xl p-5">
       <div className="flex items-center gap-2 mb-4">
@@ -101,18 +112,36 @@ function PendingUnitsPanel({ products, onRefresh }) {
                 rows={3}
                 className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:outline-none focus:border-[#FF9000] resize-none"
               />
-              <button
-                disabled={busy[k] || !inputs[k]?.trim()}
-                onClick={() => assign(row)}
-                className="mt-2 h-9 px-4 rounded-xl bg-[#111111] text-white text-xs font-medium cursor-pointer border-none disabled:opacity-40 flex items-center gap-1.5"
-              >
-                <CheckCircle2 size={13} />
-                {busy[k] ? "Saving…" : "Assign"}
-              </button>
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  disabled={busy[k] || !inputs[k]?.trim()}
+                  onClick={() => assign(row)}
+                  className="h-9 px-4 rounded-xl bg-[#111111] text-white text-xs font-medium cursor-pointer border-none disabled:opacity-40 flex items-center gap-1.5"
+                >
+                  <CheckCircle2 size={13} />
+                  {busy[k] ? "Saving…" : "Assign"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveScanRow(row)}
+                  className="h-9 px-3 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-700 text-xs font-medium cursor-pointer flex items-center gap-1.5 shadow-sm transition-colors"
+                  title="Scan barcode or IMEI with phone camera"
+                >
+                  <Camera size={13} className="text-[#FF9000]" />
+                  Scan with Phone
+                </button>
+              </div>
             </div>
           );
         })}
       </div>
+
+      <CameraScannerModal
+        open={!!activeScanRow}
+        onClose={() => setActiveScanRow(null)}
+        onScan={handleScannedCode}
+        title={`Scan ${activeScanRow?.product?.track_imei ? "IMEI" : "Serial"} Barcode`}
+      />
     </div>
   );
 }
