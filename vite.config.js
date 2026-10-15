@@ -5,7 +5,6 @@ import { fileURLToPath, URL } from 'node:url'
 
 // https://vite.dev/config/
 export default defineConfig({
-  logLevel: 'error', // Suppress warnings, only show errors
   plugins: [react(), basicSsl()],
   server: {
     host: true, // Exposes on 0.0.0.0 so phone on same Wi-Fi can connect
